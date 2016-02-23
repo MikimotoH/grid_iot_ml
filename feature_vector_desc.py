@@ -1,3 +1,5 @@
+# open = 1.0; closed=0.0; open|filtered=0.75; filtered=0.5; unknown=(use mode value)
+
 fv_desc=['80_tcp_open', '1900_udp_open', '53_udp_open', '67_udp_open|filtered',
     '53_tcp_open', '443_tcp_open', '23_tcp_open', '53_udp_open|filtered',
     '69_udp_open|filtered', '49152_tcp_open', '139_tcp_open',
