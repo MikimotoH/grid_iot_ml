@@ -45,7 +45,7 @@ def TfidfTransform_Safe(XX:np.ndarray)->np.ndarray:
         denom_tf = sum(XX[document, :])
         for term in range(XX.shape[1]):
             nom_tf = XX[document, term]
-            if nom_tf==0:
+            if nom_tf==0: # prevent devided by zero
                 continue
             tf = nom_tf/denom_tf
             denom_idf = np.sum(XX[:,term])
@@ -54,11 +54,12 @@ def TfidfTransform_Safe(XX:np.ndarray)->np.ndarray:
     return YY
 
 
-def main():
+def main1():
     XX = np.loadtxt('asus_router.matrix.txt')
     YY = TfidfTransform(XX)
     np.savetxt('asus_router.tfidf.txt.gz', YY)
-def main1():
+
+def main():
     XX = np.loadtxt('asus_router.matrix.txt')
     YY = TfidfTransform_Safe(XX)
     np.savetxt('asus_router.tfidf.safe.txt.gz', YY)
