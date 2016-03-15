@@ -21,7 +21,7 @@ def startswith2(l:str, ps:list):
             return True
     return False
 
-def get_http_homepage(xmlfile:str, host_ip:str) -> set:
+def get_http_homepage(xmlfile:str, host_ip:str) -> dict:
     with open(xmlfile, 'r') as fin:
         lines = fin.readlines()
     idx=get_idx(lines,0, lambda l:'<address addr="%s"'%host_ip in l)
@@ -52,17 +52,29 @@ def get_http_homepage(xmlfile:str, host_ip:str) -> set:
     body = [_ for _ in re.split(r"""</|>|'|"|\ |:|;|,|\.|\t|\n""", body) if _]
     body = [_.strip() for _ in body if _.strip()]
 
-    bags={}
+    bag={}
     for w in header+body:
-        if w not in bags:
-            bags[w]=1
+        if w not in bag:
+            bag[w]=1
         else:
-            bags[w]+=1
-    return bags
+            bag[w]+=1
+    return bag
 
+
+def bag_update(bag:dict, bag1:dict)->dict:
+    for w in bag1:
+        if w not in bag:
+            bag[w] = bag1[w]
+        else:
+            bag[w]+= bag1[w]
+    return bag
     
 def main():
-    osnames = get_http_homepage('nmaplog/1361.xml', '192.168.0.1')
+    bag={}
+    bag_update(bag, get_http_homepage('nmaplog/1361.xml', '192.168.0.1'))
+    bag_update(bag, get_http_homepage('nmaplog/1361.xml', '192.168.0.2'))
+    print(bag)
+
 if __name__=='__main__':
     main()
 
