@@ -78,11 +78,14 @@ def remove_html_tags(s:str)->str:
 def strip_punc(s:str)->str:
     return s.strip("""|-,.:;'" \n\t#`()""")
 
-def get_http_homepage(xmlfile:str, host_ip:str) -> dict:
+def remove_http_host_port(s):
+    return re.sub(r'(http|https)://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d{1,5})?', ' ', s)
+
+def get_http_homepage(xmlfile:str, host_ip:str) -> list:
     lines = get_lines_between(xmlfile,host_ip,
             '<script id="http-homepage"','</script>')
     if not lines:
-        return {}
+        return []
     lines = [re.sub(r'<.+?>','', _) for _ in lines]
 
     lines = ''.join(_ for _ in lines)
@@ -95,30 +98,28 @@ def get_http_homepage(xmlfile:str, host_ip:str) -> dict:
     from html import unescape
     header = [unescape(_) for _ in header]
     header = [remove_uuid(_) for _ in header]
-    header = flatten_listoflist(re.split(r""",|\ |=|"|'|;|:|\(|\)""", _) for _ in header)
+    header = flatten_listoflist(re.split(r""",|\ |=|"|;|:|\(|\)""", _) for _ in header)
 
-    body = unescape(body)
-    body = unescape(body)
-
+    body = unescape(unescape(body))
     body = re.sub(r'\\x([0-9A-Fa-f]{2})', lambda m:chr(int(m.group(1),16)), body)
     body = remove_uuid(body)
     body = remove_html_tags(body)
-    body = [_ for _ in re.split(r"""=|"|\ |\t|\n|\r|,|;""", body) if _]
+    body = [_ for _ in re.split(r"""</|/>|<|>|=|"|\ |\t|\n|\r|,|;""", body) if _]
     body = [_ for _ in (strip_punc(_) for _ in body) if _]
     body = [_ for _ in (strip_punc(_) for _ in body) if _]
+    return [_.strip() for _ in header+body if _.strip()]
 
-    return wordlist_to_bagofwords(_.strip() for _ in header+body if _.strip())
 
 def xml_to_bag(xml:str)->list:
     return [_ for _ in [_.strip(' \t\n=') for _ in 
-        re.split(r"""</|<\?|\?>|<|>|"|\ |\t|\n|\r|\(|\)""", xml)] if _]
+        re.split(r"""</|/>|<\?|\?>|<|>|"|\ |\t|\n|\r|\(|\)""", xml)] if _]
 
 
-def get_upnp_info(xmlfile:str, host_ip:str)->dict:
+def get_upnp_info(xmlfile:str, host_ip:str)->list:
     lines = get_lines_between(xmlfile, host_ip, 
             '<script id="upnp-info"', '</script>')
     if not lines:
-        return {}
+        return []
     from html import unescape
     elms=[]
     for l in lines:
@@ -133,11 +134,16 @@ def get_upnp_info(xmlfile:str, host_ip:str)->dict:
     elms = [re.sub(r'\\x([0-9A-Fa-f]{2})', lambda m:chr(int(m.group(1),16)), _) for _ in elms]
     elms = [remove_uuid(_) for _ in elms]
 
+    elms = [_ for _ in (remove_http_host_port(_) for _ in elms) if _]
     elms = [_ for _ in (strip_punc(_) for _ in elms) if _]
     elms = [_ for _ in (strip_punc(_) for _ in elms) if _]
     elms = flatten_listoflist(_.split() for _ in elms)
-    return wordlist_to_bagofwords(elms)
+    return elms
 
+def get_http_and_upnp(xmlfile:str,host_ip:str)->dict:
+    words = get_http_homepage(xmlfile,host_ip) + get_upnp_info(xmlfile,host_ip)
+    words = [_ for _ in (remove_http_host_port(_) for _ in words) if _]
+    return wordlist_to_bagofwords(words)
 
 def bag_update(bag:dict, bag1:dict)->dict:
     for w in bag1:
@@ -154,8 +160,7 @@ def main():
     rows = csr.execute("SELECT IDSession, ip_addr FROM Routers WHERE LOWER(brand) LIKE 'asus%'").fetchall()
     bag={}
     for IDSession, host_ip in rows:
-        bag_update(bag, get_http_homepage('nmaplog/%s.xml'%IDSession, host_ip))
-        bag_update(bag, get_upnp_info('nmaplog/%s.xml'%IDSession, host_ip))
+        bag_update(bag, get_http_and_upnp('nmaplog/%s.xml'%IDSession, host_ip))
     import json
     with open('asus_http_upnp_bagofwords.json', 'w') as fout:
         from collections import OrderedDict
