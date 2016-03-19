@@ -11,7 +11,7 @@ def similarity(vecA:np.ndarray, vecB:np.ndarray)->np.float:
     https://en.wikipedia.org/wiki/Cosine_similarity
     """
     from math import sqrt
-    return np.dot(vecA, vecB)/sqrt(np.dot(vecA, vecA)np.dot(vecB, vecB))
+    return np.dot(vecA, vecB)/sqrt(np.dot(vecA, vecA)*np.dot(vecB, vecB))
 
 def silhouette_safe(XX, labels)->float:
     def distance(i:int, j:int)->np.float:
@@ -71,9 +71,6 @@ def main():
         labels = KMeans(cluster, n_jobs=-1).fit_predict(XX)
         silh = silhouette(XX, labels)
         print('cluster=%s, silhouette=%s'%(cluster, silh))
-
-        silh2 = silhouette_safe(XX, labels)
-        print('cluster=%s, silhouette_safe=%s'%(cluster, silh2))
 
 if __name__ == '__main__':
     main()
