@@ -54,12 +54,12 @@ def TfidfTransform_Safe(XX:np.ndarray)->np.ndarray:
     return YY
 
 
-def main1():
+def main0():
     XX = np.loadtxt('asus_router.matrix.txt')
     YY = TfidfTransform(XX)
     np.savetxt('asus_router.tfidf.txt.gz', YY)
 
-def main():
+def main1():
     XX = np.loadtxt('asus_router.matrix.txt')
     YY = TfidfTransform_Safe(XX)
     np.savetxt('asus_router.tfidf.safe.txt.gz', YY)
