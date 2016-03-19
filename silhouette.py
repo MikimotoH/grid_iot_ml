@@ -66,11 +66,14 @@ def silhouette(XX:np.ndarray, labels:np.ndarray):
 
 def main():
     from sklearn.cluster import KMeans
+    from sklearn.metrics import silhouette_score
     XX = np.loadtxt('asus_router.tfidf.txt.gz')
     for cluster in range(2, 52):
         labels = KMeans(cluster, n_jobs=-1).fit_predict(XX)
         silh = silhouette(XX, labels)
         print('cluster=%s, silhouette=%s'%(cluster, silh))
+        silh2 = silhouette_score(XX,labels)
+        print('cluster=%s, sklearn.silhouette_score=%s'%(cluster, silh2))
 
 if __name__ == '__main__':
     main()
