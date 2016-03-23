@@ -40,6 +40,8 @@ def silhouette(XX:np.ndarray, labels:np.ndarray):
     """
     def s(i):
         simi = np.sum(XX*XX[i],axis=1)/np.sqrt(np.sum(XX*XX,axis=1)*np.sum(XX[i]*XX[i]))
+        if any(str(_)=='nan' for _ in simi):
+            pdb.set_trace()
         dist = 1 - simi
 
         # a(i)
@@ -50,17 +52,20 @@ def silhouette(XX:np.ndarray, labels:np.ndarray):
             a_i = 0
         else:
             a_i = np.mean(dist[labs])
-        if str(a_i).lower() =='nan':
+        if str(a_i) =='nan':
             pdb.set_trace()
 
         # Let b(i) be the lowest average dissimilarity of i to any other cluster, of which i is not a member. 
         # The cluster with this lowest average dissimilarity is said to be the "neighbouring cluster" of i 
         #   because it is the next best fit cluster for point i.
         b_i = min( np.mean(dist[labels==l]) for l in set(labels)-{labels[i]} )
-        if str(b_i).lower()=='nan':
+        if str(b_i)=='nan':
             pdb.set_trace()
 
-        return (b_i-a_i)/ max(b_i,a_i)
+        s_i = (b_i-a_i)/ max(b_i,a_i)
+        if str(s_i)=='nan':
+            pdb.set_trace()
+        return s_i
 
     return stats.mean(s(i) for i in range(XX.shape[0]))
 
@@ -70,8 +75,8 @@ def main():
     XX = np.loadtxt('asus_router.tfidf.txt.gz')
     for cluster in range(2, 52):
         labels = KMeans(cluster, n_jobs=-1).fit_predict(XX)
-        silh = silhouette(XX, labels)
-        print('cluster=%s, silhouette=%s'%(cluster, silh))
+        # silh = silhouette(XX, labels)
+        # print('cluster=%s, silhouette=%s'%(cluster, silh))
         silh2 = silhouette_score(XX,labels, metric='cosine')
         print('cluster=%s, sklearn.silhouette_score=%s'%(cluster, silh2))
 
