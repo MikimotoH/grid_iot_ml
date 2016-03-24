@@ -13,14 +13,14 @@ def html_to_text(htmlcode:str, include_tags=True)->list:
     if not include_tags:
         return txt
     tags = [re.split(r"""<--|-->|<\!|</|/>|<\?|\?>|<|>|\ |;|"|=""",_) for _ in re.findall(r'<.+?>', htmlcode)]
-    tags = [_.strip() for _ in reduce(lambda a,b:a+b, tags) if _.strip()]
+    tags = [_.strip() for _ in reduce(lambda a,b:a+b, tags,[]) if _.strip()]
     return txt+tags
 
 def http_headers_to_bagofwords(hdrs:list)->list:
     hdrs = [_.split(':',1) for _ in hdrs]
     hdrs = [(k,v) for k,v in hdrs if k.lower() not in ['content-length','last-modified', 'date', 'expires']]
     hdrs = [[k]+re.split(r';|,|\ ', v) for k,v in hdrs]
-    hdrs = list(reduce(lambda a,b:a+b, hdrs))
+    hdrs = list(reduce(lambda a,b:a+b, hdrs, []))
     hdrs = [_.strip(' \r\n;,') for _ in hdrs]
     hdrs = [_ for _ in hdrs if _]
     return hdrs;
@@ -38,7 +38,7 @@ def get_homepage_as_bagofwords(id_session:int, host_ip:str)->list:
     elems = [_.text for _ in host.xpath(".//script[@id='http-homepage']//elem")]
     if not len(elems):
         return []
-    txt = html_to_text(elems[-1], True)
+    txt = html_to_text(elems[-1], True) if elems[-1] else []
     hdrs = http_headers_to_bagofwords(list(takewhile(lambda x:x, elems)))
     return hdrs + txt
 
