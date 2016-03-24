@@ -5,15 +5,35 @@ import lxml
 import re
 from functools import reduce
 from itertools import takewhile
+from bs4 import BeautifulSoup
 
-def html_to_text(htmlcode:str, include_tags=True)->list:
-    from bs4 import BeautifulSoup
+def html_to_bagofwords_0(htmlcode:str, include_tags=True):
+    txt = re.split(r"\W+", htmlcode)
+    txt = [_ for _ in txt if _]
+    return txt
+
+def html_to_bagofwords(htmlcode:str, include_tags=True)->list:
+    for scriptmatch in re.finditer(r'<script.*>(.+)</script>', htmlcode):
+        javascript = scriptmatch.group(1)
+        comments = re.findall(r'/\*.(*?)\*/', javascript)
+        comments += re.findall(r'//.*$', javascript)
+        # remove comments
+        javascript = re.sub(r'/\*.*?\*/', ' ', javascript)
+        javascript = javascript = re.sub(r'//.*$', '', javascript)
+        # remove strings
+        strings = re.findall(r'"(.*(?!\"))"', javascript)
+        strings += re.findall(r"'(.*?(?!\'))'", javascript)
+        codes = re.split(r'\W+', javascript)
+        
+    
     txt = BeautifulSoup(htmlcode, 'lxml').get_text()
-    txt = [_.strip(' \r\n\t;.,\'"?#()') for _ in txt.split()]
+    txt = [_.strip(' \r\n\t;:.,\'"?#(){}+=-/*|![]<>&') for _ in txt.split()]
+    txt = [_ for _ in txt if _]
     if not include_tags:
         return txt
     tags = [re.split(r"""<--|-->|<\!|</|/>|<\?|\?>|<|>|\ |;|"|=""",_) for _ in re.findall(r'<.+?>', htmlcode)]
-    tags = [_.strip() for _ in reduce(lambda a,b:a+b, tags,[]) if _.strip()]
+    tags = [_.strip(' \n\r\t#/-') for _ in reduce(lambda a,b:a+b, tags,[])]
+    tags = [_ for _ in tags if _]
     return txt+tags
 
 def http_headers_to_bagofwords(hdrs:list)->list:
@@ -31,16 +51,47 @@ def get_host(id_session:int, host_ip:str)->lxml.etree._Element:
     hosts = tree.xpath(".//address[@addr='%s']/.."%host_ip)
     return hosts[0] if hosts else None
 
-def get_homepage_as_bagofwords(id_session:int, host_ip:str)->list:
+def get_homepage_as_bagofwords(id_session:int, host_ip:str, **kwargs)->list:
+    """
+    optional include_tags=True : include HTML tags
+    optional include_hostname=True : include hostname
+    optional get_upnp_info=True : get script id='upnp-info'
+    """
+    include_tags = kwargs.get('include_tags', True)
+    include_hostname = kwargs.get('include_hostname', True)
+    get_upnp_info = kwargs.get('get_upnp_info', True)
     host = get_host(id_session, host_ip) 
     if host is None:
         return []
-    elems = [_.text for _ in host.xpath(".//script[@id='http-homepage']//elem")]
-    if not len(elems):
-        return []
-    txt = html_to_text(elems[-1], True) if elems[-1] else []
-    hdrs = http_headers_to_bagofwords(list(takewhile(lambda x:x, elems)))
-    return hdrs + txt
+    
+    hostname = []
+    if include_hostname:
+        try:
+            hostname = [host.xpath('.//hostname')[0].attrib['name']]
+        except (AttributeError,IndexError):
+            pass
+
+    homepage_bow=[]
+    try:
+        script = host.xpath(".//script[@id='http-homepage']")[0]
+        hdrs = [_.text for _ in script.xpath(".//table[@key='response_header']/elem") if _.text]
+        htmlcode = script.xpath(".//elem[@key='response_body']")[0].text
+        homepage_bow = http_headers_to_bagofwords(hdrs)
+        if htmlcode is not None:
+            homepage_bow += html_to_bagofwords_0(htmlcode, include_tags)
+    except (AttributeError,IndexError):
+        pass
+
+    upnp = []
+    if get_upnp_info:
+        try:
+            script = host.xpath(".//script[@id='upnp-info']")[0]
+            for key in ['friendlyName', 'manufacturer', 'modelDescription', 'modelName', \
+                    'modelNumber', 'HostServer']:
+                upnp += script.xpath(".//elem[@key='%s']"%key)[0].text.split()
+        except IndexError:
+            pass
+    return  homepage_bow + hostname + upnp
 
 
 def get_tm_vul_dns_hijack(id_session, host_ip):
@@ -55,7 +106,7 @@ def get_tm_vul_dns_hijack(id_session, host_ip):
     hdrs = http_headers_to_bagofwords(list(takewhile(lambda x:x, hdrs)))
 
     htmlcode = scrout.xpath(".//elem[@key='body']")[0].text
-    txt = html_to_text(htmlcode)
+    txt = html_to_bagofwords(htmlcode)
     return hdrs+txt
 
 
