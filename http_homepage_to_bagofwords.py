@@ -9,6 +9,18 @@ from bs4 import BeautifulSoup
 
 def html_to_bagofwords_0(htmlcode:str, include_tags=True):
     txt = re.split(r"\W+", htmlcode)
+    txt = [_ for _ in txt if _.lower() not in 
+            ['html','head','title','body', 'h1','h2','div','span','script','style', 
+                'input', 'table', 'tbody', 'tr', 'td', 'tbody', 'type', 'class', 
+                'value', 'select', 'option', 'var']]
+    txt = [_ for _ in txt if _]
+    return txt
+def html_to_bagofwords_1(htmlcode:str, include_tags=True):
+    soup = BeautifulSoup(htmlcode, 'lxml')
+    for s in soup(["script", "style"]):
+        s.extract()
+    txt = soup.get_text()
+    txt = [_.strip(' \r\n\t.,;:') for _ in txt.split()]
     txt = [_ for _ in txt if _]
     return txt
 
@@ -38,7 +50,9 @@ def html_to_bagofwords(htmlcode:str, include_tags=True)->list:
 
 def http_headers_to_bagofwords(hdrs:list)->list:
     hdrs = [_.split(':',1) for _ in hdrs]
-    hdrs = [(k,v) for k,v in hdrs if k.lower() not in ['content-length','last-modified', 'date', 'expires']]
+    hdrs = [(k,v) for k,v in hdrs if k.lower() not in ['content-length', 
+        'last-modified', 'date', 'expires', 'cache-control', 'content-type', 
+        'pragma', 'connection']]
     hdrs = [[k]+re.split(r';|,|\ ', v) for k,v in hdrs]
     hdrs = list(reduce(lambda a,b:a+b, hdrs, []))
     hdrs = [_.strip(' \r\n;,') for _ in hdrs]
@@ -78,7 +92,7 @@ def get_homepage_as_bagofwords(id_session:int, host_ip:str, **kwargs)->list:
         htmlcode = script.xpath(".//elem[@key='response_body']")[0].text
         homepage_bow = http_headers_to_bagofwords(hdrs)
         if htmlcode is not None:
-            homepage_bow += html_to_bagofwords_0(htmlcode, include_tags)
+            homepage_bow += html_to_bagofwords_1(htmlcode, include_tags)
     except (AttributeError,IndexError):
         pass
 
