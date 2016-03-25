@@ -71,6 +71,7 @@ def main():
     print('silhouette_score=%s'%silh)
 
     if opts.verbose:
+        # argsort(): Returns the indices that would sort an array row by row
         order_centroids = kmeans.cluster_centers_.argsort()[:,::-1] 
         terms = countVectorizer.get_feature_names()
         import pprint

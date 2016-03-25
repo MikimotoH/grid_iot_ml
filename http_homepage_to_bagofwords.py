@@ -6,6 +6,37 @@ import re
 from functools import reduce
 from itertools import takewhile
 from bs4 import BeautifulSoup
+import pdb
+import traceback
+
+def unescape_backslash_hex(htmlcode:str)->str:
+    try:
+        r"""
+        unescape something like
+        <option value="TH">\xE0\xB9\x84\xE0\xB8\x97\xE0\xB8\xA2</option>
+        """
+        if not re.search(r'\\x[0-9a-fA-F]{2}', htmlcode):
+            return htmlcode
+        charsets = [_.strip(' "/') for _ in re.findall(r'<meta\ .*charset=(.*?)>', htmlcode, re.I)]
+        if not charsets:
+            charsets += ["utf-8"]
+        bs = htmlcode.encode('utf-8')
+        htmlblob = re.sub(rb'\\x[0-9a-fA-F]{2}', lambda m:bytes([int(m.group(0)[-2:],16)]), 
+                htmlcode.encode('utf8'))
+        for cs in charsets:
+            try:
+                return htmlblob.decode(cs)
+            except UnicodeDecodeError as ex:
+                pass
+        pdb.set_trace()
+        import chardet
+        detres = chardet.detect(htmlblob)
+        print("chardet=%s"%(detres))
+        return htmlblob.decode(detres['encoding'], errors='ignore')
+    except Exception as ex:
+        traceback.print_exc()
+        pdb.set_trace()
+        
 
 def html_to_bagofwords_0(htmlcode:str, include_tags=True):
     txt = re.split(r"\W+", htmlcode)
@@ -15,7 +46,13 @@ def html_to_bagofwords_0(htmlcode:str, include_tags=True):
                 'value', 'select', 'option', 'var']]
     txt = [_ for _ in txt if _]
     return txt
+
 def html_to_bagofwords_1(htmlcode:str, include_tags=True):
+    is_utf8=False
+    if "\\xEF\\xBB\\xBF" in htmlcode:
+        is_utf8=True
+        htmlcode = htmlcode.replace("\\xEF\\xBB\\xBF","")
+    htmlcode = unescape_backslash_hex(htmlcode)
     soup = BeautifulSoup(htmlcode, 'lxml')
     for s in soup(["script", "style"]):
         s.extract()
@@ -105,7 +142,8 @@ def get_homepage_as_bagofwords(id_session:int, host_ip:str, **kwargs)->list:
                 upnp += script.xpath(".//elem[@key='%s']"%key)[0].text.split()
         except IndexError:
             pass
-    return  homepage_bow + hostname + upnp
+    mac_oui = [_.attrib["addr"][:8] for _ in host.xpath(".//address[@addrtype='mac']")]
+    return  homepage_bow + hostname + upnp + mac_oui
 
 
 def get_tm_vul_dns_hijack(id_session, host_ip):
