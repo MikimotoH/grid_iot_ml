@@ -57,7 +57,7 @@ def html_to_bagofwords_1(htmlcode:str, include_tags=True):
     for s in soup(["script", "style"]):
         s.extract()
     txt = soup.get_text()
-    txt = [_.strip(' \r\n\t.,;:') for _ in txt.split()]
+    txt = [_.strip(' \r\n\t.,;:-|') for _ in txt.split()]
     txt = [_ for _ in txt if _]
     return txt
 
@@ -89,8 +89,9 @@ def http_headers_to_bagofwords(hdrs:list)->list:
     hdrs = [_.split(':',1) for _ in hdrs]
     hdrs = [(k,v) for k,v in hdrs if k.lower() not in ['content-length', 
         'last-modified', 'date', 'expires', 'cache-control', 'content-type', 
-        'pragma', 'connection']]
-    hdrs = [[k]+re.split(r';|,|\ ', v) for k,v in hdrs]
+        'pragma', 'connection', 'transfer-encoding']]
+    # handle WWW-Authenticate: Basic realm="TCC Router"
+    hdrs = [[k]+re.split(r';|,|\ ', v) if k !='WWW-Authenticate' else [k,v] for k,v in hdrs]
     hdrs = list(reduce(lambda a,b:a+b, hdrs, []))
     hdrs = [_.strip(' \r\n;,') for _ in hdrs]
     hdrs = [_ for _ in hdrs if _]
@@ -123,15 +124,15 @@ def get_homepage_as_bagofwords(id_session:int, host_ip:str, **kwargs)->list:
             pass
 
     homepage_bow=[]
-    try:
-        script = host.xpath(".//script[@id='http-homepage']")[0]
-        hdrs = [_.text for _ in script.xpath(".//table[@key='response_header']/elem") if _.text]
-        htmlcode = script.xpath(".//elem[@key='response_body']")[0].text
-        homepage_bow = http_headers_to_bagofwords(hdrs)
-        if htmlcode is not None:
-            homepage_bow += html_to_bagofwords_1(htmlcode, include_tags)
-    except (AttributeError,IndexError):
-        pass
+    for script in host.xpath(".//script[@id='http-homepage']"):
+        try:
+            hdrs = [_.text for _ in script.xpath(".//table[@key='response_header']/elem") if _.text]
+            homepage_bow = http_headers_to_bagofwords(hdrs)
+            htmlcode = script.xpath(".//elem[@key='response_body']")[0].text
+            if htmlcode is not None:
+                homepage_bow += html_to_bagofwords_1(htmlcode, include_tags)
+        except (AttributeError,IndexError):
+            pass
 
     upnp = []
     if get_upnp_info:
