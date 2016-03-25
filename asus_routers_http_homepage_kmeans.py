@@ -2,6 +2,15 @@ import logging
 from optparse import OptionParser
 import numpy as np
 
+from lxml import etree
+
+from http_homepage_to_bagofwords import get_homepage_as_bagofwords
+from http_homepage_to_bagofwords import get_host
+
+def is_windows(id_session:int, host_ip:str):
+    host = get_host(id_session, host_ip)
+    return any(('Windows' in _.attrib['name']) for _ in host.xpath('.//osmatch'))
+
 def main():
     # Display progress logs on stdout
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -33,7 +42,11 @@ def main():
     cursor = conn.cursor()
     rows = cursor.execute("SELECT IDSession,ip_addr FROM Routers WHERE LOWER(brand) LIKE '%s%%' "%opts.brand.lower()).fetchall()
 
-    from http_homepage_to_bagofwords import get_homepage_as_bagofwords
+    # filter out Windows PC
+    print('Before removing Windows, samples=%s'%len(rows))
+    rows = [_ for _ in rows if not is_windows(*_)]
+    print('After removing Windows, samples=%s'%len(rows))
+
     X = countVectorizer.fit_transform([' '.join(get_homepage_as_bagofwords(*_)) for _ in rows])
 
     from sklearn.feature_extraction.text import TfidfTransformer
