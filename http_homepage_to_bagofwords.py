@@ -8,6 +8,8 @@ from itertools import takewhile
 from bs4 import BeautifulSoup
 import pdb
 import traceback
+import chardet
+import sqlite3
 
 def unescape_backslash_hex(htmlcode:str)->str:
     try:
@@ -29,7 +31,6 @@ def unescape_backslash_hex(htmlcode:str)->str:
             except UnicodeDecodeError as ex:
                 pass
         pdb.set_trace()
-        import chardet
         detres = chardet.detect(htmlblob)
         print("chardet=%s"%(detres))
         return htmlblob.decode(detres['encoding'], errors='ignore')
@@ -103,6 +104,16 @@ def get_host(id_session:int, host_ip:str)->lxml.etree._Element:
     hosts = tree.xpath(".//address[@addr='%s']/.."%host_ip)
     return hosts[0] if hosts else None
 
+def mac_oui_vendor_lookup(mac_oui)->str:
+    with sqlite3.connect("ieee_mac_oui.sqlite3") as conn:
+        csr = conn.cursor()
+        rows = csr.execute("SELECT company_name FROM TMacOui WHERE oui=:mac_oui", locals()).fetchall()
+        try:
+            return rows[0][0]
+        except Exception as ex:
+            print(str(ex))
+            return None
+
 def get_homepage_as_bagofwords(id_session:int, host_ip:str, **kwargs)->list:
     """
     optional include_tags=True : include HTML tags
@@ -143,8 +154,16 @@ def get_homepage_as_bagofwords(id_session:int, host_ip:str, **kwargs)->list:
                 upnp += script.xpath(".//elem[@key='%s']"%key)[0].text.split()
         except IndexError:
             pass
+    # <address addr="D8:50:E6:59:B6:90" addrtype="mac" vendor="ASUSTek COMPUTER INC."/
     mac_oui = [_.attrib["addr"][:8] for _ in host.xpath(".//address[@addrtype='mac']")]
-    return  homepage_bow + hostname + upnp + mac_oui
+    try:
+        vendor = [_.attrib["vendor"] for _ in host.xpath(".//address[addrtype='mac']")]
+    except KeyError:
+        try:
+            vendor = [mac_oui_vendor_lookup(mac_oui)]
+        except Exception as ex:
+            vendor = []
+    return  homepage_bow + hostname + upnp + mac_oui + vendor
 
 
 def get_tm_vul_dns_hijack(id_session, host_ip):

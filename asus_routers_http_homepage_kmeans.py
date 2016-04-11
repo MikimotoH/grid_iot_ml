@@ -85,7 +85,7 @@ def main():
         # argsort(): Returns the indices that would sort an array row by row
         order_centroids = kmeans.cluster_centers_.argsort()[:,::-1] 
         terms = countVectorizer.get_feature_names()
-        # wrap_print('terms=%s'%terms)
+        wrap_print('terms=%s'%terms)
         for lab in set(labels):
             print('label=%s'%lab)
             print('size of cluster[%d]=%d'%(lab, sum(labels==lab)))
@@ -96,9 +96,6 @@ def main():
             term_strengths = [_ for _ in term_strengths if _>np.finfo(float).eps]
             popular_terms = [terms[ind] for ind in order_centroids[lab,:len(term_strengths)]]
             wrap_print('terms=%s'%popular_terms)
-            import pandas
-            df = pandas.DataFrame(list(zip(popular_terms, term_strengths)), columns=['terms','strength'])
-            print(df)
             if opts.show_idsession:
                 wrap_print('nmaplog=%s'% [rows[i] for i,_ in enumerate(labels) if _==lab])
             print('\n')
