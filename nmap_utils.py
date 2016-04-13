@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import lxml
 from html import unescape
 from lxml import objectify
-from parse_html import parse_html
+from parse_html import parse_html, html_unescape_backslash_hex
 
 def get_host_xml_lines(xmlfile:str, host_ip:str)->list:
     with open(xmlfile, 'r') as fin:
@@ -41,52 +41,8 @@ def get_host_xml_lines(xmlfile:str, host_ip:str)->list:
         end=len(lines)-1
     return lines[beg:end+1]
 
-def is_html(ss):
-    return ss.strip().startswith('<')
 
-def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
-    xml_lines = get_host_xml_lines("nmaplog/%s.xml"%IDSession, ip_addr)
-    for line in xml_lines:
-        for parag in re.finditer(r'<.+?>|[^<>]+', line, re.DOTALL):
-            if parag.startswith('<'):
-                yield from parse_xml_markup(parag)
-            else:
-                yield from parse_xml_text(unescape(parag))
 
-                words = parag.strip('<>').split()
-                for word in words:
-                    if word.startswith('"'):
-                        word = unescape(word.strip('"'))
-                        if is_html(word):
-                            yield from parse_html(word)
-                        else:
-                            yield from word.split()
-
-"""
-In [24]: counter.most_common(26)
-Out[24]:
- ('upnp', 256878),
- ('http-homepage', 202436),
- ('dns', 100613),
- ('http-headers', 60084),
- ('hostname', 51351),
- ('broadcast-upnp', 23793),
- ('sslcert', 12867),
- ('osmatch', 6023),
- ('openport', 5991),
- ('bjnp-discover', 3416),
- ('nbstat', 3405),
- ('afp-serverinfo', 2348),
- ('broadcast-dns', 1245),
- ('http-title', 693),
- ('http-qnap-nas-info', 654),
- ('broadcast-bjnp', 480),
- ('wsdd', 477),
- ('broadcast-upnp-unverified', 213),
- ('nbstat-unverified', 18),
- ('afp-serverinfo-unverified', 5),
- ('broadcast-dns-unverified', 3)]
-"""
 
 def lxml_remove_namespace(xml_tree:lxml.etree.ElementTree):
     root = xml_tree.getroot()
@@ -99,7 +55,7 @@ def lxml_remove_namespace(xml_tree:lxml.etree.ElementTree):
     return root
 
 def parse_response_header(header)->str:
-    for child in upnp_header.getchildren():
+    for child in header.getchildren():
         if not child.text:
             continue
         text = child.text
@@ -108,13 +64,15 @@ def parse_response_header(header)->str:
             continue
         yield fieldname
         for tok in re.split(r' ', fieldvalue):
-            yield tok
+            tok = tok.strip(';," ')
+            if tok:
+                yield tok
 
-def get_upnp_info(host)->str:
+def tokenize_upnp_info(host)->str:
     try:
         upnp_info = host.xpath(".//script[@id='upnp-info']")[0]
     except IndexError:
-        return
+        raise StopIteration
     upnp_header = upnp_info.xpath(".//table[@key='response_header']")[0]
     yield from parse_response_header(upnp_header)
     upnp_status = upnp_info.xpath(".//elem[@key='response_status']")[0].text
@@ -122,37 +80,44 @@ def get_upnp_info(host)->str:
     upnp_body = upnp_info.xpath(".//elem[@key='response_body']")[0].text
     xml_tree = etree.fromstring(upnp_body)
     root = lxml_remove_namespace(xml_tree.getroottree())
-    for elem in xml_tree.getiterator():
-        text = elem.text.strip()
-        if not elem.text.strip():
+    for elem in root.getiterator():
+        if not re.match(r'friendly|manufacturer|model', elem.tag, re.I):
             continue
-        for tok in re.split(r' ', text):
-            yield tok
+        for tok in elem.text.split():
+            tok = tok.strip(" ,;-.")
+            if tok:
+                yield tok
+    for elem in upnp_info.xpath(".//elem"):
+        if not re.match(r'friendly|manufacturer|model|HostServer', 
+                elem.attrib.get('key',''), re.I):
+            continue
+        for tok in elem.text.split():
+            tok = tok.strip(" ,;.-")
+            if tok:
+                yield tok
+
 
 def get_host(IDSession:int, ip_addr:str)->ElementTree:
     parser = etree.XMLParser(encoding='utf-8', huge_tree=True, recover=True)
     xml_lines = get_host_xml_lines('nmaplog/%s.xml'%IDSession, ip_addr)
-    return etree.fromstring(''.join(xml_lines), parser=parser)
+    xml_code = ''.join(xml_lines)
+    if not xml_code:
+        return None
+    return etree.fromstring(xml_code, parser=parser)
 
 
-def html_to_bagofwords_1(htmlcode:str):
-    htmlcode = unescape_backslash_hex(htmlcode)
-    soup = BeautifulSoup(htmlcode, 'lxml')
-    for s in soup(["script", "style"]):
-        s.extract()
-    for parag in soup.getTextRecursively():
-        for sentence in re.split(r' ', parag):
-
-    txt = [_.strip(' \r\n\t.,;:-|') for _ in txt.split()]
-    txt = [_ for _ in txt if _]
-    return txt
-
-def get_homepage(host:lxml.etree.ElementTree)->str:
-    homepage = host.xpath(".//script[@id='http-homepage']")[0]
-    header = homepage.xpath(".//table[@key='reponse_header']")[0]
+def tokenize_http_homepage(host:lxml.etree.ElementTree)->str:
+    try:
+        homepage = host.xpath(".//script[@id='http-homepage']")[0]
+    except:
+        raise StopIteration
+    header = homepage.xpath(".//table[@key='response_header']")[0]
     yield from parse_response_header(header)
-    body = homepage.xpath(".//table[@key='reponse_body']")[0]
-    htmltext = body.text
+    try:
+        body = homepage.xpath(".//elem[@key='response_body']")[0].text
+    except:
+        raise StopIteration
+    yield from parse_html(html_unescape_backslash_hex(body))
 
 def get_host_open_ports(xmlfile:str, host_ip:str)->list:
     """
@@ -221,8 +186,148 @@ def get_host_osmatch(xmlfile:str, host_ip:str)->list:
     return osnames
 
 
+def tokenize_text(text:str):
+    # any word combined by [a-z0-9_\-.]+ but not started or ended with '.' or '-'
+    for tokm in re.finditer(r'(?!\.|\-)[\w\-.]+(?<!\.|-)', text, re.UNICODE|re.DOTALL):
+        tok = tokm.group(0).strip('.-').lower()
+        if tok:
+            yield tok
+def tokenize_xml(xmlcode:str)->str:
+    for pagm in re.finditer(r'<.+?>|[^<>]+', xmlcode, re.DOTALL|re.UNICODE):
+        pag = pagm.group(0)
+        if pag[0]=='<':
+            tokenize_xml_markup(pag)
+        else:
+            pag = unescape(pag).strip()
+            if is_markup_lang(pag):
+                if is_html(pag):
+                    tokenize_html(pag)
+                else:
+                    tokenize_xml(pag)
+            else:
+                tokenize_text(pag)
+
+def tokenize_hostname(host:lxml.etree.ElementTree)->str:
+    try:
+        yield host.xpath(".//hostname")[0].attrib['name']
+    except IndexError:
+        raise StopIteration()
+
+def tokenize_dns(host:lxml.etree.ElementTree)->str:
+    try:
+        script=host.xpath(".//script[@id='dns-service-discovery']")[0]
+    except IndexError:
+        raise StopIteration
+    for elem in script.xpath(".//elem"):
+        if not elem.text:
+            continue
+        for tok in re.split(r',|\ ', elem.text.strip()):
+            tok=tok.strip(' \';,')
+            if not tok:
+                continue
+            yield tok
+
+def tokenize_sslcert(host):
+    try:
+        script=host.xpath(".//script[@id='ssl-cert']")[0]
+    except IndexError:
+        raise StopIteration
+    for elem in script.xpath(".//elem"):
+        if not elem.attrib['key'].lower().endswith('name') or not elem.text:
+            continue
+        for tok in re.split(r',|\ ', elem.text.strip()):
+            tok=tok.strip()
+            if tok:
+                yield tok
+
+def mac_oui_vendor_lookup(mac_oui)->str:
+    with sqlite3.connect("ieee_mac_oui.sqlite3") as conn:
+        csr = conn.cursor()
+        try:
+            vendor,*_ = csr.execute("SELECT company_name FROM TMacOui WHERE oui=?", (mac_oui.replace(':','').upper(),)).fetchone()
+            yield vendor
+        except:
+            raise StopIteration
+
+def tokenize_mac_oui(host):
+    try:
+        address = host.xpath(".//address[@addr='mac']")[0]
+    except IndexError:
+        raise StopIteration
+    oui = address.attrib['addr'][:8]
+    yield oui
+    try:
+        vendor = address.attrib['vendor']
+    except KeyError:
+        vendor = mac_oui_vendor_lookup(oui)
+        if vendor is None:
+            raise StopIteration
+    for tok in vendor.split():
+        tok = tok.split(' .-\'\"')
+        if tok:
+            yield tok
+
+def tokenize_osmatch(host):
+    """
+    <osmatch name="Thomson ST 585 or ST 536i ADSL modem" accuracy="92" line="81215">
+    <osmatch name="Nokia IP650 firewall (IPSO 4.0 and CheckPoint Firewall-1/VPN-1 software)" accuracy="90" line="69940">
+    <osmatch name="HP LaserJet 4300 printer" accuracy="88" line="27474">
+    <osmatch name="Ricoh Aficio 1224C or AP400N printer" accuracy="88" line="74495">
+    <osmatch name="AirSpan ProST WiMAX access point" accuracy="85" line="1759">
+    """
+    for osmatch in host.xpath(".//osmatch"):
+        for tok in osmatch.attrib["name"].split():
+            tok = tok.strip(' ()"\'')
+            if not tok or tok in ['or']:
+                continue
+            yield tok
+
+
+def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
+    """
+     ('upnp', 256878),
+     ('http-homepage', 202436),
+     ('dns', 100613),
+     ('http-headers', 60084),
+     ('hostname', 51351),
+     ('broadcast-upnp', 23793),
+     ('sslcert', 12867),
+     ('osmatch', 6023),
+     ('openport', 5991),
+     ('bjnp-discover', 3416),
+     ('nbstat', 3405),
+     ('afp-serverinfo', 2348),
+     ('broadcast-dns', 1245),
+     ('http-title', 693),
+     ('http-qnap-nas-info', 654),
+     ('broadcast-bjnp', 480),
+     ('wsdd', 477),
+     ('broadcast-upnp-unverified', 213),
+     ('nbstat-unverified', 18),
+     ('afp-serverinfo-unverified', 5),
+     ('broadcast-dns-unverified', 3)]
+    """
+    host = get_host(IDSession, ip_addr)
+    if host is None:
+        raise StopIteration
+    yield from tokenize_upnp_info(host)
+    yield from tokenize_http_homepage(host)
+    yield from tokenize_dns(host)
+    yield from tokenize_hostname(host)
+    yield from tokenize_sslcert(host)
+    yield from tokenize_mac_oui(host)
+    yield from tokenize_osmatch(host)
+
+
 def main():
-    osnames = get_host_osmatch('nmaplog/344131.xml', '192.168.1.1')
+    # osnames = get_host_osmatch('nmaplog/344131.xml', '192.168.1.1')
+    # toks = [_ for _ in tokenize_nmaplog_host(133, '192.168.1.1')]
+    toks = [_ for _ in tokenize_nmaplog_host(853, '192.168.1.1')]
+    from collections import Counter
+    counter = Counter(toks)
+    # assert "dsldevice.lan" in counter
+    print(counter)
+
 if __name__=='__main__':
     main()
 
