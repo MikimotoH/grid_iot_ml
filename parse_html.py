@@ -6,14 +6,23 @@ import bs4
 import chardet
 from lxml import etree
 import lxml
+from collections import Counter
+
+def tokenize_plain_text(text)->str:
+    for tok in text.split():
+        tok = tok.strip(' ;,.-"\t\n\'')
+        if tok:
+            yield tok.lower()
 
 def parse_html_comment(comment):
     """
     IP address is 192.168.2.1, and model is RT-AC68U rev B.
     """
-    for token in re.finditer(r'[0-9A-Z_\-\.]+', comment, re.DOTALL|re.IGNORECASE):
-        yield token.group(0).lower().strip('.')
-
+    # for token in re.finditer(r'[0-9A-Z_\-\.]+', comment, re.DOTALL|re.IGNORECASE):
+    #     yield token.group(0).lower().strip('.')
+    yield from tokenize_plain_text(comment)
+    
+ 
 def parse_html_markup(markup):
     """
     <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
@@ -56,16 +65,19 @@ def parse_html_css(css):
         yield tok.group(0).lower().strip('-')
 
 def parse_html_text(text):
-    for tok in re.finditer(r'[\w\.\-]+', text, re.DOTALL|re.UNICODE):
-        yield tok.group(0).strip('-.').lower()
+    yield from tokenize_plain_text(text)
+
+re.search(r'(?<=\>).+(?=\<)', '<em> a b c </em>').group(0)
 
 def parse_html(htmlcode:str)->str:
-    for parag in re.finditer(r'<script.*?>.*?</script>|<style.*?>.*?</style>|<.+?>|[^<>]+', htmlcode, re.DOTALL|re.IGNORECASE):
+    for parag in re.finditer(r'<script.*?>.*?</script>|<style.*?>.*?</style>|<.+?>|(?<=\>)[^<>]+(?=\<)', htmlcode, re.DOTALL|re.IGNORECASE):
         prefix,*_ = parag.group(0).lower().split(' ',1)
         if prefix.startswith('<script'):
-            yield from parse_html_javascript(parag.group(0))
+            # yield from parse_html_javascript(parag.group(0))
+            pass
         elif prefix.startswith('<style'):
-            yield from parse_html_css(parag.group(0))
+            # yield from parse_html_css(parag.group(0))
+            pass
         elif prefix.startswith('<--'):
             yield from parse_html_comment(unescape(parag.group(0)))
         elif prefix.startswith('<'):
@@ -81,8 +93,7 @@ def html_unescape_backslash_hex(htmlcode:str)->str:
     if not re.search(r'\\x[0-9a-fA-F]{2}', htmlcode):
         return htmlcode
     charsets = [_.strip(' "/') for _ in re.findall(r'<meta\ .*charset=(.*?)>', htmlcode, re.I)]
-    if not charsets:
-        charsets += ["utf-8"]
+    charsets += ["utf-8", "latin1", "latin2"]
 
     def backslash_to_bytes(m):
         bs = m.group(0)
@@ -91,7 +102,7 @@ def html_unescape_backslash_hex(htmlcode:str)->str:
     for cs in charsets:
         try:
             return htmlblob.decode(cs)
-        except UnicodeDecodeError as ex:
+        except (UnicodeDecodeError,LookupError) as ex:
             pass
     pdb.set_trace()
     detres = chardet.detect(htmlblob)
@@ -109,14 +120,22 @@ def get_homepage(host):
         body = script.xpath(".//elem[@key='response_body']")[0].text
         yield from parse_html(html_unescape_backslash_hex(body))
 
-def main():
+def main1():
     host = get_host(577844, '192.168.2.1')
-    from collections import Counter
     tokens = [_.strip() for _ in get_homepage(host) if _.strip()]
     counter = Counter(tokens)
     import pprint
     pp = pprint.PrettyPrinter(width=80, indent=1)
     pp.pprint(counter)
+def main():
+    with open('1069962_WRT1900AC.html','r') as fin:
+        htmlcode = fin.read()
+    tokens = [_.strip() for _ in parse_html(htmlcode) if _.strip()]
+    counter = Counter(tokens)
+    import pprint
+    pp = pprint.PrettyPrinter(width=80, indent=1)
+    pp.pprint(counter)
+
 if __name__=='__main__':
     main()
 

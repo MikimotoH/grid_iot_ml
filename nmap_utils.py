@@ -11,6 +11,9 @@ import lxml
 from html import unescape
 from lxml import objectify
 from parse_html import parse_html, html_unescape_backslash_hex
+from bs4 import BeautifulSoup
+import traceback
+import pdb
 
 def get_host_xml_lines(xmlfile:str, host_ip:str)->list:
     with open(xmlfile, 'r') as fin:
@@ -43,7 +46,6 @@ def get_host_xml_lines(xmlfile:str, host_ip:str)->list:
 
 
 
-
 def lxml_remove_namespace(xml_tree:lxml.etree.ElementTree):
     root = xml_tree.getroot()
     for elem in root.getiterator():
@@ -54,47 +56,58 @@ def lxml_remove_namespace(xml_tree:lxml.etree.ElementTree):
     objectify.deannotate(root, cleanup_namespaces=True)
     return root
 
-def parse_response_header(header)->str:
+def tokenize_plain_text(text)->str:
+    if text is None or len(text)==0:
+        raise StopIteration
+    for tok in re.split(r'\ |=|,|;', text):
+        tok = tok.strip(' ;,.-"\t\n\'()/\\')
+        if tok:
+            yield tok
+
+def parse_response_header(header:lxml.etree.ElementTree)->str:
     for child in header.getchildren():
         if not child.text:
             continue
         text = child.text
-        fieldname, fieldvalue = text.split(': ', maxsplit=1)
-        if fieldname.lower() in ['content-length', 'date', 'last-modified', 'connection', 'content-type']:
+        try:
+            fieldname, fieldvalue = text.split(': ', maxsplit=1)
+        except ValueError:
+            continue
+        if fieldname.lower() in ['content-length', 'date', 'last-modified', 
+                'connection', 'content-type', 'cache-control', 'pragma', 
+                'transfer-encoding','etag','accept-encoding','accept-ranges']:
             continue
         yield fieldname
-        for tok in re.split(r' ', fieldvalue):
-            tok = tok.strip(';," ')
-            if tok:
-                yield tok
+        yield from tokenize_plain_text(fieldvalue)
 
 def tokenize_upnp_info(host)->str:
     try:
         upnp_info = host.xpath(".//script[@id='upnp-info']")[0]
     except IndexError:
         raise StopIteration
-    upnp_header = upnp_info.xpath(".//table[@key='response_header']")[0]
+    try:
+        upnp_header = upnp_info.xpath(".//table[@key='response_header']")[0]
+    except IndexError:
+        raise StopIteration
     yield from parse_response_header(upnp_header)
-    upnp_status = upnp_info.xpath(".//elem[@key='response_status']")[0].text
-    yield upnp_status
     upnp_body = upnp_info.xpath(".//elem[@key='response_body']")[0].text
-    xml_tree = etree.fromstring(upnp_body)
-    root = lxml_remove_namespace(xml_tree.getroottree())
-    for elem in root.getiterator():
-        if not re.match(r'friendly|manufacturer|model', elem.tag, re.I):
-            continue
-        for tok in elem.text.split():
-            tok = tok.strip(" ,;-.")
-            if tok:
-                yield tok
+    if upnp_body is not None:
+        parser = etree.XMLParser(encoding='utf8', recover=True)
+        try:
+            xml_tree = etree.fromstring(upnp_body.encode('utf8'), parser=parser)
+        except Exception as ex:
+            pdb.set_trace()
+            traceback.print_exc()
+        root = lxml_remove_namespace(xml_tree.getroottree())
+        for elem in root.getiterator():
+            if not re.match(r'friendly|manufacturer|model', str(elem.tag), re.I):
+                continue
+            yield from tokenize_plain_text(elem.text)
     for elem in upnp_info.xpath(".//elem"):
         if not re.match(r'friendly|manufacturer|model|HostServer', 
                 elem.attrib.get('key',''), re.I):
             continue
-        for tok in elem.text.split():
-            tok = tok.strip(" ,;.-")
-            if tok:
-                yield tok
+        yield from tokenize_plain_text(elem.text)
 
 
 def get_host(IDSession:int, ip_addr:str)->ElementTree:
@@ -104,7 +117,6 @@ def get_host(IDSession:int, ip_addr:str)->ElementTree:
     if not xml_code:
         return None
     return etree.fromstring(xml_code, parser=parser)
-
 
 def tokenize_http_homepage(host:lxml.etree.ElementTree)->str:
     try:
@@ -117,7 +129,12 @@ def tokenize_http_homepage(host:lxml.etree.ElementTree)->str:
         body = homepage.xpath(".//elem[@key='response_body']")[0].text
     except:
         raise StopIteration
-    yield from parse_html(html_unescape_backslash_hex(body))
+    if body is None:
+        raise StopIteration
+    soup = BeautifulSoup(html_unescape_backslash_hex(body), 'lxml')
+    for _ in soup(["style","script"]):
+        _.extract()
+    yield from tokenize_plain_text(str(soup.get_text()))
 
 def get_host_open_ports(xmlfile:str, host_ip:str)->list:
     """
@@ -241,17 +258,18 @@ def tokenize_sslcert(host):
                 yield tok
 
 def mac_oui_vendor_lookup(mac_oui)->str:
+    import sqlite3
     with sqlite3.connect("ieee_mac_oui.sqlite3") as conn:
         csr = conn.cursor()
         try:
             vendor,*_ = csr.execute("SELECT company_name FROM TMacOui WHERE oui=?", (mac_oui.replace(':','').upper(),)).fetchone()
-            yield vendor
-        except:
-            raise StopIteration
+            return vendor
+        except TypeError:
+            return None
 
 def tokenize_mac_oui(host):
     try:
-        address = host.xpath(".//address[@addr='mac']")[0]
+        address = host.xpath(".//address[@addrtype='mac']")[0]
     except IndexError:
         raise StopIteration
     oui = address.attrib['addr'][:8]
@@ -262,10 +280,7 @@ def tokenize_mac_oui(host):
         vendor = mac_oui_vendor_lookup(oui)
         if vendor is None:
             raise StopIteration
-    for tok in vendor.split():
-        tok = tok.split(' .-\'\"')
-        if tok:
-            yield tok
+    yield from tokenize_plain_text(vendor)
 
 def tokenize_osmatch(host):
     """
@@ -276,11 +291,7 @@ def tokenize_osmatch(host):
     <osmatch name="AirSpan ProST WiMAX access point" accuracy="85" line="1759">
     """
     for osmatch in host.xpath(".//osmatch"):
-        for tok in osmatch.attrib["name"].split():
-            tok = tok.strip(' ()"\'')
-            if not tok or tok in ['or']:
-                continue
-            yield tok
+        yield from tokenize_plain_text(osmatch.attrib["name"])
 
 
 def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
@@ -320,9 +331,15 @@ def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
 
 
 def main():
+    import sys
+    idsession = int(sys.argv[1]) if len(sys.argv)>1 else None
+    ip_addr = sys.argv[2] if len(sys.argv)>2 else None
     # osnames = get_host_osmatch('nmaplog/344131.xml', '192.168.1.1')
     # toks = [_ for _ in tokenize_nmaplog_host(133, '192.168.1.1')]
-    toks = [_ for _ in tokenize_nmaplog_host(853, '192.168.1.1')]
+    # toks = [_ for _ in tokenize_nmaplog_host(853, '192.168.1.1')]
+    if idsession is None:
+        idsession, ip_addr = 1069962, '192.168.1.1'
+    toks = [_ for _ in tokenize_nmaplog_host(idsession, ip_addr)]
     from collections import Counter
     counter = Counter(toks)
     # assert "dsldevice.lan" in counter
