@@ -77,7 +77,7 @@ def parse_response_header(header:lxml.etree.ElementTree)->str:
         if fieldname=='www-authenticate':
             try:
                 realm = re.search(r'realm="(.*)"', fieldvalue, re.I).group(1)
-                yield from nrepeat(3, tokenize_plain_text(realm))
+                yield from nrepeat(1, tokenize_plain_text(realm))
             except AttributeError:
                 pass
             continue
@@ -338,13 +338,13 @@ def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
     if host is None:
         raise StopIteration
     # upweight upnp_info
-    yield from nrepeat(3, tokenize_upnp_info(host))
-    yield from nrepeat(3, tokenize_broadcast_upnp_info(IDSession, ip_addr))
+    yield from nrepeat(1, tokenize_upnp_info(host))
+    yield from nrepeat(1, tokenize_broadcast_upnp_info(IDSession, ip_addr))
     yield from tokenize_http_homepage(host)
     yield from tokenize_dns(host)
     yield from tokenize_hostname(host)
     yield from tokenize_sslcert(host)
-    yield from nrepeat(3, tokenize_mac_oui(host))
+    yield from nrepeat(1, tokenize_mac_oui(host))
     yield from tokenize_osmatch(host)
 
 

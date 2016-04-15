@@ -98,7 +98,7 @@ parameters = {
     'vect__token_pattern':(r"[^\ ]+",),
     'vect__ngram_range': ((1,2), ),
     'vect__stop_words': ('english', ),
-    'vect__max_df': (0.4, 0.3, 0.2, ), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
+    'vect__max_df': (0.2, ), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
     'vect__min_df': (0,), # When building the vocabulary ignore terms that have a document frequency strictly lower than the given threshold. This value is also called cut-off in the literature.
     'vect__use_idf': (False,),
     'clf__alpha':(np.exp2(-1074), ),
@@ -120,12 +120,12 @@ parameters = {
     'vect__token_pattern':(r"[^\ ]+",),
     'vect__ngram_range': ((1,2),),
     'vect__stop_words': ('english', ),
-    'vect__max_df': (0.4,0.3,), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
+    'vect__max_df': (0.2,), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
     'vect__use_idf': (False, ),
-    'clf__loss':('hinge','log','modified_huber', 'squared_hinge',), # 'hinge':SVM; 'log':Logistic regression; 'modified_huber': tolerate to outliers as well as probability estimates; 'squared_hinge': like hinge but quadratically penalized.
-    'clf__alpha':(0.0001, 1e-5, ), # regularization term
+    'clf__loss':('hinge', 'perceptron', ), # 'hinge':SVM; 
+    'clf__alpha':(1e-5, 1e-6, ), # regularization term
     'clf__penalty':('elasticnet',),
-    # 'clf__l1_ratio':(0.15, 0.25, ), # when Elastic-net, the ratio to mix L1 with L2
+    'clf__l1_ratio':(0.15, 0.25, ), # when Elastic-net, the ratio to mix L1 with L2
     # 'clf__learning_rate': ('optimal', 'invscaling',),
     # 'clf__warm_start':(False,),
     # 'clf__n_jobs': (-1,),

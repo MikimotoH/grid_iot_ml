@@ -141,7 +141,7 @@ def parse_html(htmlcode:str, **kwargs)->str:
                 yield from parse_html_css(parag)
         elif prefix.startswith('<title'):
             # upweight title 
-            yield from nrepeat(upweight_title, tokenize_plain_text(unescape(re.sub(r'<.*?>','',parag))))
+            yield from nrepeat(1, tokenize_plain_text(unescape(re.sub(r'<.*?>','',parag))))
         elif prefix.startswith('<--'):
             if include_markup:
                 yield from parse_html_comment(unescape(parag))
