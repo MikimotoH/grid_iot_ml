@@ -141,7 +141,9 @@ def parse_html(htmlcode:str, **kwargs)->str:
                 yield from parse_html_css(parag)
         elif prefix.startswith('<title'):
             # upweight title 
-            yield from nrepeat(1, tokenize_plain_text(unescape(re.sub(r'<.*?>','',parag))))
+            yield 'title'
+            yield from nrepeat(upweight_title, tokenize_plain_text(unescape(re.sub(r'<.*?>','',parag))))
+            yield 'title'
         elif prefix.startswith('<--'):
             if include_markup:
                 yield from parse_html_comment(unescape(parag))
@@ -181,6 +183,7 @@ def get_host(idsession:int, ip_addr:str)->lxml.etree._Element:
     parser = etree.XMLParser(encoding='utf-8', huge_tree=True,recover=True)
     tree = etree.parse('nmaplog/%s.xml'%idsession, parser=parser)
     return tree.xpath(".//address[@addr='%s']/.."%ip_addr)[0]
+
 
 def get_homepage(host):
     for script in host.xpath(".//script[@id='http-homepage']"):

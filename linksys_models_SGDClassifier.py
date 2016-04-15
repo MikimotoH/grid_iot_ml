@@ -15,18 +15,21 @@ from itertools import groupby
 import time
 import sys
 from collections import Counter
+import lzma
+
 
 def get_nmaplog(idsession:int, ip_addr:str)->str:
     return ' '.join(_.strip() for _ in nmap_utils.tokenize_nmaplog_host(idsession, ip_addr) if _.strip())
 
+
 def save_train_data(train_data:list, filename:str):
-    with open(filename, 'w') as fout:
+    with lzma.open(filename, 'wt') as fout:
         for datum, label,idsession,ipaddr,model in train_data:
             fout.write((' '*4).join([datum, str(label), str(idsession), ipaddr, model])+'\n')
 
 
 def load_train_data(filename:str)->list:
-    with open(filename, 'r') as fin:
+    with lzma.open(filename, 'rt') as fin:
         for line in fin:
             datum,label,idsession,ipaddr,model = line.split(' '*4)
             yield datum,int(label),int(idsession),ipaddr,model
@@ -42,7 +45,7 @@ num_cv_folds=3 # number of cross validation folds
 max_train_count = sys.maxsize
 
 try:
-    train_data = list(load_train_data('linksys_models_train_data.txt'))
+    train_data = list(load_train_data('linksys_models_train_data.txt.xz'))
     print("Train Data: %s categories, total samples=%s data"%( num_uniq(unzip(train_data,1)), len(train_data)))
 except FileNotFoundError:
     with open("Linksys_models.csv") as fin:
@@ -69,7 +72,7 @@ except FileNotFoundError:
         train_data += [ (get_nmaplog(*_), label, _[0], _[1], model) for _ in idip]
     time1 = time.perf_counter()
     print("Tokenizer took %0.3f seconds to generate %s categories, totally N=%s data"%(time1-time0, num_uniq(unzip(train_data,1)), len(train_data)))
-    save_train_data(train_data, 'linksys_models_train_data.txt')
+    save_train_data(train_data, 'linksys_models_train_data.txt.xz')
 
 shuffle(train_data)
 
@@ -85,6 +88,7 @@ def run_grid_search(pipeline, parameters):
     except AttributeError:
         for param_name in sorted(parameters[0].keys()):
             print("    %s: %r" % (param_name, best_parameters[param_name]))
+    print("")
 
 
 """
@@ -96,9 +100,9 @@ pipeline = Pipeline([
 ])
 parameters = {
     'vect__token_pattern':(r"[^\ ]+",),
-    'vect__ngram_range': ((1,2), ),
+    'vect__ngram_range': ((1,3), ),
     'vect__stop_words': ('english', ),
-    'vect__max_df': (0.2, ), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
+    'vect__max_df': (0.15,), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
     'vect__min_df': (0,), # When building the vocabulary ignore terms that have a document frequency strictly lower than the given threshold. This value is also called cut-off in the literature.
     'vect__use_idf': (False,),
     'clf__alpha':(np.exp2(-1074), ),
@@ -106,7 +110,6 @@ parameters = {
 }
 print("\n--- MultinomialNB (NaiveBayesian Classifier) ---")
 run_grid_search(pipeline, parameters)
-print("\n")
 
 
 """
@@ -118,22 +121,21 @@ pipeline = Pipeline([
 ])
 parameters = {
     'vect__token_pattern':(r"[^\ ]+",),
-    'vect__ngram_range': ((1,2),),
+    'vect__ngram_range': ((1,3),),
     'vect__stop_words': ('english', ),
     'vect__max_df': (0.2,), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
-    'vect__use_idf': (False, ),
-    'clf__loss':('hinge', 'perceptron', ), # 'hinge':SVM; 
-    'clf__alpha':(1e-5, 1e-6, ), # regularization term
+    'vect__use_idf': (False, True,),
+    'clf__loss':('hinge',), # 'hinge':SVM; 
+    'clf__alpha':(1e-5,), # regularization term
     'clf__penalty':('elasticnet',),
-    'clf__l1_ratio':(0.15, 0.25, ), # when Elastic-net, the ratio to mix L1 with L2
-    # 'clf__learning_rate': ('optimal', 'invscaling',),
-    # 'clf__warm_start':(False,),
-    # 'clf__n_jobs': (-1,),
-    # 'clf__average': (False,),
+    'clf__l1_ratio': (0.11, 0.1126,), # when Elastic-net, the ratio to mix L1 with L2
+    'clf__learning_rate': ('optimal', ),
+    # 'clf__warm_start':(False,),# reuse the solution of the previous call to fit as initialization
+    'clf__n_jobs': (-1, ),
+    'clf__average': (False, ),
 }
 print("\n--- SGDClassifier ---")
 run_grid_search(pipeline, parameters)
-print("\n")
 
 
 """
@@ -170,7 +172,6 @@ parameters = [
 ]
 print("\n--- LinearSVC Linear Support Vector Machine Classifier ---")
 run_grid_search(pipeline, parameters)
-print("\n")
 
 
 # """

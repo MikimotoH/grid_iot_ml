@@ -12,39 +12,10 @@ from html import unescape
 from lxml import objectify
 from parse_html import parse_html, html_unescape_backslash_hex, nrepeat
 from parse_html import tokenize_plain_text
+from parse_html import get_host
 from bs4 import BeautifulSoup
 import traceback
 import pdb
-
-def get_host_xml_lines(xmlfile:str, host_ip:str)->list:
-    with open(xmlfile, 'r') as fin:
-        lines = fin.readlines()
-    def find_pivot():
-        for i in range(len(lines)):
-            line = lines[i]
-            if '<address addr="%s"'%host_ip in line:
-                return i
-    pivot = find_pivot()
-    if pivot is None:
-        return []
-    def find_beg():
-        for i in range(pivot-1, -1, -1):
-            line = lines[i]
-            if line.startswith(r'<host '):
-                return i
-    beg = find_beg()
-    if beg is None:
-        beg=0
-    def find_end():
-        for i in range(pivot+1, len(lines), 1):
-            line = lines[i]
-            if line.startswith(r'</host>'):
-                return i
-    end = find_end()
-    if end is None:
-        end=len(lines)-1
-    return lines[beg:end+1]
-
 
 
 def lxml_remove_namespace(xml_tree:lxml.etree.ElementTree):
@@ -77,7 +48,7 @@ def parse_response_header(header:lxml.etree.ElementTree)->str:
         if fieldname=='www-authenticate':
             try:
                 realm = re.search(r'realm="(.*)"', fieldvalue, re.I).group(1)
-                yield from nrepeat(1, tokenize_plain_text(realm))
+                yield from nrepeat(3, tokenize_plain_text(realm))
             except AttributeError:
                 pass
             continue
@@ -126,16 +97,6 @@ def tokenize_broadcast_upnp_info(IDSession:int, ipaddr:str)->str:
         raise StopIteration
     yield from tokenize_upnp_tree(upnp_tree)
 
-
-
-def get_host(IDSession:int, ip_addr:str)->ElementTree:
-    parser = etree.XMLParser(encoding='utf-8', huge_tree=True, recover=True)
-    xml_lines = get_host_xml_lines('nmaplog/%s.xml'%IDSession, ip_addr)
-    xml_code = ''.join(xml_lines)
-    if not xml_code:
-        return None
-    return etree.fromstring(xml_code, parser=parser)
-    
 
 def tokenize_http_homepage(host:lxml.etree.ElementTree)->str:
     try:
@@ -309,6 +270,14 @@ def tokenize_osmatch(host):
     for osmatch in host.xpath(".//osmatch"):
         yield from tokenize_plain_text(osmatch.attrib["name"])
 
+def tokenize_openport(host):
+    """
+    <port protocol="tcp" portid="5000"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="upnp" method="table" conf="3"/></port>
+
+    """
+    for openport in host.xpath(".//port/state[@state='open']/.."):
+        yield "%s/%s" % (openport.attrib['portid'], openport.attrib['protocol'])
+
 
 def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
     """
@@ -338,14 +307,15 @@ def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
     if host is None:
         raise StopIteration
     # upweight upnp_info
-    yield from nrepeat(1, tokenize_upnp_info(host))
-    yield from nrepeat(1, tokenize_broadcast_upnp_info(IDSession, ip_addr))
+    yield from nrepeat(3, tokenize_upnp_info(host))
+    yield from nrepeat(3, tokenize_broadcast_upnp_info(IDSession, ip_addr))
     yield from tokenize_http_homepage(host)
     yield from tokenize_dns(host)
     yield from tokenize_hostname(host)
     yield from tokenize_sslcert(host)
-    yield from nrepeat(1, tokenize_mac_oui(host))
+    yield from nrepeat(3, tokenize_mac_oui(host))
     yield from tokenize_osmatch(host)
+    yield from tokenize_openport(host)
 
 
 def main():
