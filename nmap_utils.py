@@ -11,6 +11,7 @@ import lxml
 from html import unescape
 from lxml import objectify
 from parse_html import parse_html, html_unescape_backslash_hex, nrepeat
+from parse_html import tokenize_plain_text
 from bs4 import BeautifulSoup
 import traceback
 import pdb
@@ -56,13 +57,6 @@ def lxml_remove_namespace(xml_tree:lxml.etree.ElementTree):
     objectify.deannotate(root, cleanup_namespaces=True)
     return root
 
-def tokenize_plain_text(text)->str:
-    if text is None or len(text)==0:
-        raise StopIteration
-    for tok in re.split(r'\ |=|,|;', text):
-        tok = tok.strip(' ;,.-"\t\n\'()/\\')
-        if tok:
-            yield tok.lower()
 
 def parse_response_header(header:lxml.etree.ElementTree)->str:
     for child in header.getchildren():
@@ -73,7 +67,9 @@ def parse_response_header(header:lxml.etree.ElementTree)->str:
             fieldname, fieldvalue = text.split(': ', maxsplit=1)
         except ValueError:
             continue
-        fieldname = fieldname.lower()
+        fieldname = fieldname.lower() 
+        # From RFC 2616 - "Hypertext Transfer Protocol -- HTTP/1.1", Section 4.2, "Message Headers":
+        #    Field names are case-insensitive.
         if fieldname in ['content-length', 'date', 'last-modified', 
                 'connection', 'content-type', 'cache-control', 'pragma', 
                 'transfer-encoding','etag','accept-encoding','accept-ranges']:
@@ -81,12 +77,11 @@ def parse_response_header(header:lxml.etree.ElementTree)->str:
         if fieldname=='www-authenticate':
             try:
                 realm = re.search(r'realm="(.*)"', fieldvalue, re.I).group(1)
-                for _ in range(3):
-                    yield realm
+                yield from nrepeat(3, tokenize_plain_text(realm))
             except AttributeError:
                 pass
             continue
-        yield fieldname
+        yield fieldname.lower()
         yield from tokenize_plain_text(fieldvalue)
 
 def tokenize_upnp_tree(upnp_tree:lxml.etree._Element)->str:
@@ -140,7 +135,6 @@ def get_host(IDSession:int, ip_addr:str)->ElementTree:
     if not xml_code:
         return None
     return etree.fromstring(xml_code, parser=parser)
-
     
 
 def tokenize_http_homepage(host:lxml.etree.ElementTree)->str:
@@ -157,8 +151,8 @@ def tokenize_http_homepage(host:lxml.etree.ElementTree)->str:
     if body is None:
         raise StopIteration
     htmlcode=html_unescape_backslash_hex(body)
-    from parse_html import parse_html
     yield from parse_html(htmlcode)
+
 
 def get_host_open_ports(xmlfile:str, host_ip:str)->list:
     """
@@ -254,19 +248,17 @@ def tokenize_hostname(host:lxml.etree.ElementTree)->str:
     except IndexError:
         raise StopIteration()
 
+
 def tokenize_dns(host:lxml.etree.ElementTree)->str:
     try:
-        script=host.xpath(".//script[@id='dns-service-discovery']")[0]
+        dns=host.xpath(".//script[@id='dns-service-discovery']")[0]
     except IndexError:
         raise StopIteration
-    for elem in script.xpath(".//elem"):
+    for elem in dns.xpath(".//elem"):
         if not elem.text:
             continue
-        for tok in re.split(r',|\ ', elem.text.strip()):
-            tok=tok.strip(' \';,')
-            if not tok:
-                continue
-            yield tok
+        yield from tokenize_plain_text(elem.text)
+
 
 def tokenize_sslcert(host):
     try:
@@ -276,10 +268,8 @@ def tokenize_sslcert(host):
     for elem in script.xpath(".//elem"):
         if not elem.attrib['key'].lower().endswith('name') or not elem.text:
             continue
-        for tok in re.split(r',|\ ', elem.text.strip()):
-            tok=tok.strip()
-            if tok:
-                yield tok
+        yield from tokenize_plain_text(elem.text)
+
 
 def mac_oui_vendor_lookup(mac_oui)->str:
     import sqlite3
@@ -290,6 +280,7 @@ def mac_oui_vendor_lookup(mac_oui)->str:
             return vendor
         except TypeError:
             return None
+
 
 def tokenize_mac_oui(host):
     try:
@@ -305,6 +296,7 @@ def tokenize_mac_oui(host):
         if vendor is None:
             raise StopIteration
     yield from tokenize_plain_text(vendor)
+
 
 def tokenize_osmatch(host):
     """
@@ -352,7 +344,7 @@ def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
     yield from tokenize_dns(host)
     yield from tokenize_hostname(host)
     yield from tokenize_sslcert(host)
-    yield from tokenize_mac_oui(host)
+    yield from nrepeat(3, tokenize_mac_oui(host))
     yield from tokenize_osmatch(host)
 
 

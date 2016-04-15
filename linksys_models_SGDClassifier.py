@@ -1,13 +1,12 @@
 # coding: utf-8
 import nmap_utils
 import csv
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.linear_model import SGDClassifier
-from sklearn.grid_search import GridSearchCV
 from sklearn.svm import LinearSVC
 from sklearn.svm import SVC
+from sklearn.grid_search import GridSearchCV
 from sklearn.pipeline import Pipeline
 import numpy as np
 from os import path
@@ -18,13 +17,12 @@ import sys
 from collections import Counter
 
 def get_nmaplog(idsession:int, ip_addr:str)->str:
-    return ' '.join(_ for _ in nmap_utils.tokenize_nmaplog_host(idsession, ip_addr) if _.strip())
+    return ' '.join(_.strip() for _ in nmap_utils.tokenize_nmaplog_host(idsession, ip_addr) if _.strip())
 
 def save_train_data(train_data:list, filename:str):
     with open(filename, 'w') as fout:
         for datum, label,idsession,ipaddr in train_data:
-            fout.write(datum)
-            fout.write((' '*4).join([str(label), str(idsession), ipaddr])+'\n')
+            fout.write((' '*4).join([datum, str(label), str(idsession), ipaddr])+'\n')
 
 
 def load_train_data(filename:str)->list:
@@ -88,77 +86,22 @@ def run_grid_search(pipeline, parameters):
         for param_name in sorted(parameters[0].keys()):
             print("    %s: %r" % (param_name, best_parameters[param_name]))
 
-"""
-Linear SVC (Support Vector Machine Classifier)
-"""
-pipeline = Pipeline([
-    ('vect', CountVectorizer()), 
-    ('tfidf', TfidfTransformer()),
-    ('clf', LinearSVC()),
-])
-parameters = [
-    {
-        'vect__token_pattern':(r"[^\ ]+",),
-        'clf__loss':('squared_hinge',),
-        'clf__penalty': ('l2',),
-        'clf__dual': (True,False,),
-    },
-    {
-        'vect__token_pattern':(r"[^\ ]+",),
-        'clf__loss':('squared_hinge',),
-        'clf__penalty': ('l1',),
-        'clf__dual': (False,),
-    },
-    {
-        'vect__token_pattern':(r"[^\ ]+",),
-        'clf__loss':('hinge',),
-        'clf__penalty': ('l2',),
-        'clf__dual': (True,),
-    },
-]
-print("\n--- LinearSVC Linear Support Vector Machine Classifier ---")
-run_grid_search(pipeline, parameters)
-print("\n")
-
-
-"""
-SVC (Support Vector Machine Classifier)
-"""
-pipeline = Pipeline([
-    ('vect', CountVectorizer()), 
-    ('tfidf', TfidfTransformer()),
-    ('clf', SVC()),
-])
-parameters = {
-    'vect__token_pattern':(r"[^\ ]+",),
-    'clf__C':(1,), #2,0.5,), # penalty parameter C of the error term
-    'clf__kernel': ('linear', 'poly', 'sigmoid', ), # 'rbf'
-    'clf__degree': (2, ), # used when kernel=='poly'
-    'clf__probability': (False, True,), # Whether to enable probability estimates
-    'clf__shrinking': (True,), # False,), # Whether to use the shrinking heuristic
-    'clf__coef0': (0,), #  0.1, 0.2, 0.4, -0.1, -0.2, -0.4),
-    'clf__decision_function_shape': (None,), # 'ovr', 'ovo',),
-    'clf__class_weight': (None,), # 'balanced',),
-    'clf__verbose':(False,),
-}
-print("\n--- SVC Support Vector Machine Classifier ---")
-run_grid_search(pipeline, parameters)
-print("\n")
-
 
 """
 Multinomial Naive Bayesian 
 """
 pipeline = Pipeline([
-    ('vect', CountVectorizer()), 
-    ('tfidf', TfidfTransformer()),
+    ('vect', TfidfVectorizer()), 
     ('clf', MultinomialNB()),
 ])
 parameters = {
-    'vect__max_df':(0.5, 0.75, 1.0),
     'vect__token_pattern':(r"[^\ ]+",),
-    'vect__ngram_range': ((1,1), (1,2)),
-    'clf__alpha':(sys.float_info.epsilon,),
+    'vect__ngram_range': ((1,2), ),
+    'vect__stop_words': ('english', ),
+    'vect__max_df': (0.4, 0.3, 0.2, ), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
+    'vect__min_df': (0,), # When building the vocabulary ignore terms that have a document frequency strictly lower than the given threshold. This value is also called cut-off in the literature.
+    'vect__use_idf': (False,),
+    'clf__alpha':(np.exp2(-1074), ),
     'clf__fit_prior':(True,),
 }
 print("\n--- MultinomialNB (NaiveBayesian Classifier) ---")
@@ -170,16 +113,86 @@ print("\n")
 SGD Classifier (Stochastic Gradient Descent)
 """
 pipeline = Pipeline([
-    ('vect', CountVectorizer()), 
-    ('tfidf', TfidfTransformer()),
+    ('vect', TfidfVectorizer()), 
     ('clf', SGDClassifier()),
 ])
 parameters = {
     'vect__token_pattern':(r"[^\ ]+",),
-    'clf__alpha':(0.00001, 0.000001),
-    'clf__penalty':('l2', 'elasticnet'),
+    'vect__ngram_range': ((1,2),),
+    'vect__stop_words': ('english', ),
+    'vect__max_df': (0.4,0.3,), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
+    'vect__use_idf': (False, ),
+    'clf__loss':('hinge','log','modified_huber', 'squared_hinge',), # 'hinge':SVM; 'log':Logistic regression; 'modified_huber': tolerate to outliers as well as probability estimates; 'squared_hinge': like hinge but quadratically penalized.
+    'clf__alpha':(0.0001, 1e-5, ), # regularization term
+    'clf__penalty':('elasticnet',),
+    # 'clf__l1_ratio':(0.15, 0.25, ), # when Elastic-net, the ratio to mix L1 with L2
+    # 'clf__learning_rate': ('optimal', 'invscaling',),
+    # 'clf__warm_start':(False,),
+    # 'clf__n_jobs': (-1,),
+    # 'clf__average': (False,),
 }
 print("\n--- SGDClassifier ---")
 run_grid_search(pipeline, parameters)
 print("\n")
+
+
+"""
+Linear SVC (Support Vector Machine Classifier)
+"""
+pipeline = Pipeline([
+    ('vect', TfidfVectorizer()), 
+    ('clf', LinearSVC()),
+])
+parameters = [
+    {
+        'vect__token_pattern':(r"[^\ ]+",),
+        'vect__ngram_range': ((1,2),),
+        'vect__stop_words': ('english', ),
+        'vect__max_df': (0.3,),
+        'vect__use_idf': (False, ),
+        'clf__C':(4,),
+        'clf__loss':('squared_hinge',),
+        'clf__penalty': ('l1',),
+        'clf__dual': (False,),
+    },
+    #{
+    #    'vect__token_pattern':(r"[^\ ]+",),
+    #    'clf__loss':('squared_hinge',),
+    #    'clf__penalty': ('l2',),
+    #    'clf__dual': (True,False,),
+    #},
+    #{
+    #    'vect__token_pattern':(r"[^\ ]+",),
+    #    'clf__loss':('hinge',),
+    #    'clf__penalty': ('l2',),
+    #    'clf__dual': (True,),
+    #},
+]
+print("\n--- LinearSVC Linear Support Vector Machine Classifier ---")
+run_grid_search(pipeline, parameters)
+print("\n")
+
+
+# """
+# SVC (Support Vector Machine Classifier)
+# """
+# pipeline = Pipeline([
+#     ('vect', TfidfVectorizer()), 
+#     ('clf', SVC()),
+# ])
+# parameters = {
+#     'vect__token_pattern':(r"[^\ ]+",),
+#     'clf__C':(1,), #2,0.5,), # penalty parameter C of the error term
+#     'clf__kernel': ('linear', 'poly', 'sigmoid', ), # 'rbf'
+#     'clf__degree': (2, ), # used when kernel=='poly'
+#     'clf__probability': (False, True,), # Whether to enable probability estimates
+#     'clf__shrinking': (True,), # False,), # Whether to use the shrinking heuristic
+#     'clf__coef0': (0,), #  0.1, 0.2, 0.4, -0.1, -0.2, -0.4),
+#     'clf__decision_function_shape': (None,), # 'ovr', 'ovo',),
+#     'clf__class_weight': (None,), # 'balanced',),
+#     'clf__verbose':(False,),
+# }
+# print("\n--- SVC Support Vector Machine Classifier ---")
+# run_grid_search(pipeline, parameters)
+# print("\n")
 

@@ -8,11 +8,21 @@ from lxml import etree
 import lxml
 from collections import Counter
 
+# def tokenize_plain_text(text)->str:
+#     for tok in text.split():
+#         tok = tok.strip(' ;,.-"\t\n\':')
+#         if tok:
+#             yield tok.lower()
+
+ 
+_tokenize_plain_text_regex = re.compile(r"[\w\-\.]+")
 def tokenize_plain_text(text)->str:
-    for tok in text.split():
-        tok = tok.strip(' ;,.-"\t\n\':')
+    if text is None or len(text)==0:
+        raise StopIteration
+    for tok in _tokenize_plain_text_regex.findall(text):
+        tok = tok.strip('.-')
         if tok:
-            yield tok.lower()
+            yield tok
 
 def parse_html_comment(comment):
     """
@@ -104,7 +114,18 @@ def nrepeat(n:int, obj:iter):
     for r in ret:
         yield r
 
-def parse_html(htmlcode:str)->str:
+def parse_html(htmlcode:str, **kwargs)->str:
+    """
+    kwargs:
+    upweight_title: default = 3
+    include_markup: whether to include <img src="..."> or <a href="...">, default = False
+    include_script: whether to include javascript. default = False
+    include_style: whether to include CSS. default = False
+    """
+    upweight_title = kwargs.get('upweight_title', 3)
+    include_markup = kwargs.get('include_markup', False)
+    include_script = kwargs.get('include_script', False)
+    include_style  = kwargs.get('include_style', False)
     for parag in re.findall(r'<script.*?>.*?</script>|<style.*?>.*?</style>'
             '|<title>.*?</title>|<.+?>|[^<>]+', 
             htmlcode, re.DOTALL|re.IGNORECASE):
@@ -113,21 +134,20 @@ def parse_html(htmlcode:str)->str:
         except IndexError:
             continue
         if prefix.startswith('<script'):
-            # yield from parse_html_javascript(parag.group(0))
-            pass
+            if include_script:
+                yield from parse_html_javascript(parag)
         elif prefix.startswith('<style'):
-            # yield from parse_html_css(parag.group(0))
-            pass
+            if include_style:
+                yield from parse_html_css(parag)
         elif prefix.startswith('<title'):
             # upweight title 
-            yield 'title'
-            yield from nrepeat(3, tokenize_plain_text(unescape(re.sub(r'<.*?>','',parag))))
-            yield 'title'
+            yield from nrepeat(upweight_title, tokenize_plain_text(unescape(re.sub(r'<.*?>','',parag))))
         elif prefix.startswith('<--'):
-            # yield from parse_html_comment(unescape(parag))
-            pass
+            if include_markup:
+                yield from parse_html_comment(unescape(parag))
         elif prefix.startswith('<'):
-            yield from parse_html_markup(parag)
+            if include_markup:
+                yield from parse_html_markup(parag)
         else:
             yield from tokenize_plain_text(unescape(parag))
 
