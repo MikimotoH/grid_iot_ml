@@ -16,6 +16,8 @@ import time
 import sys
 from collections import Counter
 import lzma
+from statistics import mean as avg
+from sklearn.metrics import classification_report
 
 
 def get_nmaplog(idsession:int, ip_addr:str)->str:
@@ -31,6 +33,7 @@ def save_train_data(train_data:list, filename:str):
 def load_train_data(filename:str)->list:
     with lzma.open(filename, 'rt') as fin:
         for line in fin:
+            line = line.rstrip()
             datum,label,idsession,ipaddr,model = line.split(' '*4)
             yield datum,int(label),int(idsession),ipaddr,model
 
@@ -44,6 +47,7 @@ def num_uniq(ls:list)->int:
 num_cv_folds=3 # number of cross validation folds
 max_train_count = sys.maxsize
 
+""" load train_data or extract from nmaplog """
 try:
     train_data = list(load_train_data('linksys_models_train_data.txt.xz'))
     print("Train Data: %s categories, total samples=%s data"%( num_uniq(unzip(train_data,1)), len(train_data)))
@@ -74,6 +78,9 @@ except FileNotFoundError:
     print("Tokenizer took %0.3f seconds to generate %s categories, totally N=%s data"%(time1-time0, num_uniq(unzip(train_data,1)), len(train_data)))
     save_train_data(train_data, 'linksys_models_train_data.txt.xz')
 
+num_categories = num_uniq(unzip(train_data,1))
+model_names = [ next(_[4] for _ in train_data if _[1]==cat) for cat in range(num_categories)]
+
 shuffle(train_data)
 
 def run_grid_search(pipeline, parameters) -> dict:
@@ -83,6 +90,10 @@ def run_grid_search(pipeline, parameters) -> dict:
     pp.pprint(parameters)
     grid_search = GridSearchCV(pipeline, parameters, n_jobs=-1, verbose=1, cv=num_cv_folds)
     grid_search.fit( unzip(train_data,0), unzip(train_data,1) )
+
+    prediction = grid_search.predict(unzip(train_data,0))
+    print(classification_report(unzip(train_data,1), prediction, target_names=model_names))
+
     best_parameters = grid_search.best_estimator_.get_params()
     print("Best score : %0.3f" % grid_search.best_score_)
     ret = {}
@@ -117,8 +128,8 @@ nb_parameters = {
     'clf__fit_prior':(True,),
 }
 print("\n--- MultinomialNB (NaiveBayesian Classifier) ---")
-best_nb_parameters = run_grid_search(pipeline, nb_parameters)
-best_vect_parameters = {k:v for k,v in best_nb_parameters.items() if k.startswith('vect') }
+run_grid_search(pipeline, nb_parameters)
+
 
 
 """
@@ -129,18 +140,25 @@ pipeline = Pipeline([
     ('clf', SGDClassifier()),
 ])
 parameters = {
-    **best_vect_parameters,
-    'clf__loss':('hinge',), # 'hinge':SVM; 
-    'clf__alpha':(1e-5,), # regularization term
+    'vect__token_pattern':(r"[^\ ]+",),
+    'vect__ngram_range': ((1,2),),
+    'vect__stop_words': ('english',),
+    'vect__max_df': (0.15, ),
+    'vect__min_df': (0,), # 2/len(train_data), ), 
+    'vect__use_idf': (True, ),
+    'vect__sublinear_tf': (True,), # False,),
+    'clf__loss':('hinge',), # 'squared_loss', 'huber', 'epsilon_insensitive', ), 
+    'clf__alpha':(1e-5,), # 1e-4), # regularization term
     'clf__penalty':('elasticnet',),
-    'clf__l1_ratio': (0.11,), # when Elastic-net, the ratio to mix L1 with L2
+    'clf__l1_ratio': (0.09,), # 0.11,),
     # 'clf__learning_rate': ('optimal', ),
-    # 'clf__warm_start':(False,),# reuse the solution of the previous call to fit as initialization
+    # 'clf__warm_start':(False,),
     'clf__n_jobs': (-1, ),
     'clf__average': (False, ),
 }
 print("\n--- SGDClassifier ---")
-run_grid_search(pipeline, parameters)
+best_sgd_params = run_grid_search(pipeline, parameters)
+best_vect_params = {k:v for k,v in best_sgd_params.items() if k.startswith('vect')}
 
 
 """
@@ -152,8 +170,8 @@ pipeline = Pipeline([
 ])
 parameters = [
     {
-        **best_vect_parameters,
-        'clf__C':(4,8,),
+        **best_vect_params,
+        'clf__C': [2**x for x in range(2,10)],
         'clf__loss':('squared_hinge',),
         'clf__penalty': ('l1',),
         'clf__dual': (False,),
