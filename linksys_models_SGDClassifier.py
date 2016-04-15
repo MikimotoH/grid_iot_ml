@@ -21,15 +21,15 @@ def get_nmaplog(idsession:int, ip_addr:str)->str:
 
 def save_train_data(train_data:list, filename:str):
     with open(filename, 'w') as fout:
-        for datum, label,idsession,ipaddr in train_data:
-            fout.write((' '*4).join([datum, str(label), str(idsession), ipaddr])+'\n')
+        for datum, label,idsession,ipaddr,model in train_data:
+            fout.write((' '*4).join([datum, str(label), str(idsession), ipaddr, model])+'\n')
 
 
 def load_train_data(filename:str)->list:
     with open(filename, 'r') as fin:
         for line in fin:
-            datum,label,idsession,ipaddr = line.split(' '*4)
-            yield datum,int(label),int(idsession),ipaddr
+            datum,label,idsession,ipaddr,model = line.split(' '*4)
+            yield datum,int(label),int(idsession),ipaddr,model
 
 
 def unzip(zipped, index)->list:
@@ -38,8 +38,8 @@ def num_uniq(ls:list)->int:
     return len(set(ls))
 
 
-num_cv_folds=3
-max_train_count = 500
+num_cv_folds=3 # number of cross validation folds
+max_train_count = sys.maxsize
 
 try:
     train_data = list(load_train_data('linksys_models_train_data.txt'))
@@ -66,7 +66,7 @@ except FileNotFoundError:
         idip = [(r[0],r[1]) for r in rows if r[2]==model]
         shuffle(idip)
         idip = idip[:max_train_count]
-        train_data += [ (get_nmaplog(*_), label, _[0], _[1]) for _ in idip]
+        train_data += [ (get_nmaplog(*_), label, _[0], _[1], model) for _ in idip]
     time1 = time.perf_counter()
     print("Tokenizer took %0.3f seconds to generate %s categories, totally N=%s data"%(time1-time0, num_uniq(unzip(train_data,1)), len(train_data)))
     save_train_data(train_data, 'linksys_models_train_data.txt')
