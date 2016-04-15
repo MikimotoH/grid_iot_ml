@@ -279,6 +279,17 @@ def tokenize_openport(host):
         yield "%s/%s" % (openport.attrib['portid'], openport.attrib['protocol'])
 
 
+def tokenize_nbstat(host): 
+    try:
+        nbstat = host.xpath(".//script[@id='nbstat']")[0]
+    except:
+        raise StopIteration
+    for elem in nbstat.xpath(".//elem"):
+        if elem.text is None:
+            continue
+        yield from tokenize_plain_text(elem.text)
+
+
 def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
     """
      ('upnp', 256878),
@@ -292,7 +303,7 @@ def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
      ('openport', 5991),
      ('bjnp-discover', 3416),
      ('nbstat', 3405),
-     ('afp-serverinfo', 2348),
+     ('afp-serverinfo', 2348), # Apple Inc. devices
      ('broadcast-dns', 1245),
      ('http-title', 693),
      ('http-qnap-nas-info', 654),
@@ -316,6 +327,7 @@ def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
     yield from nrepeat(3, tokenize_mac_oui(host))
     yield from tokenize_osmatch(host)
     yield from tokenize_openport(host)
+    yield from tokenize_nbstat(host)
 
 
 def main():

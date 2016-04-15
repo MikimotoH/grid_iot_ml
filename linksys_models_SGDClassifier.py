@@ -76,19 +76,27 @@ except FileNotFoundError:
 
 shuffle(train_data)
 
-def run_grid_search(pipeline, parameters):
+def run_grid_search(pipeline, parameters) -> dict:
+    from pprint import PrettyPrinter
+    pp = PrettyPrinter()
+    print("parameters:\n    ", end='')
+    pp.pprint(parameters)
     grid_search = GridSearchCV(pipeline, parameters, n_jobs=-1, verbose=1, cv=num_cv_folds)
     grid_search.fit( unzip(train_data,0), unzip(train_data,1) )
     best_parameters = grid_search.best_estimator_.get_params()
     print("Best score : %0.3f" % grid_search.best_score_)
+    ret = {}
     print("Best parameter:")
     try:
         for param_name in sorted(parameters.keys()):
             print("    %s: %r" % (param_name, best_parameters[param_name]))
+            ret[param_name] = (best_parameters[param_name],)
     except AttributeError:
         for param_name in sorted(parameters[0].keys()):
             print("    %s: %r" % (param_name, best_parameters[param_name]))
+            ret[param_name] = (best_parameters[param_name],)
     print("")
+    return ret
 
 
 """
@@ -98,9 +106,9 @@ pipeline = Pipeline([
     ('vect', TfidfVectorizer()), 
     ('clf', MultinomialNB()),
 ])
-parameters = {
+nb_parameters = {
     'vect__token_pattern':(r"[^\ ]+",),
-    'vect__ngram_range': ((1,3), ),
+    'vect__ngram_range': ((1,2), ),
     'vect__stop_words': ('english', ),
     'vect__max_df': (0.15,), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
     'vect__min_df': (0,), # When building the vocabulary ignore terms that have a document frequency strictly lower than the given threshold. This value is also called cut-off in the literature.
@@ -109,7 +117,8 @@ parameters = {
     'clf__fit_prior':(True,),
 }
 print("\n--- MultinomialNB (NaiveBayesian Classifier) ---")
-run_grid_search(pipeline, parameters)
+best_nb_parameters = run_grid_search(pipeline, nb_parameters)
+best_vect_parameters = {k:v for k,v in best_nb_parameters.items() if k.startswith('vect') }
 
 
 """
@@ -120,16 +129,12 @@ pipeline = Pipeline([
     ('clf', SGDClassifier()),
 ])
 parameters = {
-    'vect__token_pattern':(r"[^\ ]+",),
-    'vect__ngram_range': ((1,3),),
-    'vect__stop_words': ('english', ),
-    'vect__max_df': (0.2,), # When building the vocabulary ignore terms that have a document frequency strictly higher than the given threshold (corpus-specific stop words)
-    'vect__use_idf': (False, True,),
+    **best_vect_parameters,
     'clf__loss':('hinge',), # 'hinge':SVM; 
     'clf__alpha':(1e-5,), # regularization term
     'clf__penalty':('elasticnet',),
-    'clf__l1_ratio': (0.11, 0.1126,), # when Elastic-net, the ratio to mix L1 with L2
-    'clf__learning_rate': ('optimal', ),
+    'clf__l1_ratio': (0.11,), # when Elastic-net, the ratio to mix L1 with L2
+    # 'clf__learning_rate': ('optimal', ),
     # 'clf__warm_start':(False,),# reuse the solution of the previous call to fit as initialization
     'clf__n_jobs': (-1, ),
     'clf__average': (False, ),
@@ -147,12 +152,8 @@ pipeline = Pipeline([
 ])
 parameters = [
     {
-        'vect__token_pattern':(r"[^\ ]+",),
-        'vect__ngram_range': ((1,2),),
-        'vect__stop_words': ('english', ),
-        'vect__max_df': (0.3,),
-        'vect__use_idf': (False, ),
-        'clf__C':(4,),
+        **best_vect_parameters,
+        'clf__C':(4,8,),
         'clf__loss':('squared_hinge',),
         'clf__penalty': ('l1',),
         'clf__dual': (False,),
@@ -172,28 +173,4 @@ parameters = [
 ]
 print("\n--- LinearSVC Linear Support Vector Machine Classifier ---")
 run_grid_search(pipeline, parameters)
-
-
-# """
-# SVC (Support Vector Machine Classifier)
-# """
-# pipeline = Pipeline([
-#     ('vect', TfidfVectorizer()), 
-#     ('clf', SVC()),
-# ])
-# parameters = {
-#     'vect__token_pattern':(r"[^\ ]+",),
-#     'clf__C':(1,), #2,0.5,), # penalty parameter C of the error term
-#     'clf__kernel': ('linear', 'poly', 'sigmoid', ), # 'rbf'
-#     'clf__degree': (2, ), # used when kernel=='poly'
-#     'clf__probability': (False, True,), # Whether to enable probability estimates
-#     'clf__shrinking': (True,), # False,), # Whether to use the shrinking heuristic
-#     'clf__coef0': (0,), #  0.1, 0.2, 0.4, -0.1, -0.2, -0.4),
-#     'clf__decision_function_shape': (None,), # 'ovr', 'ovo',),
-#     'clf__class_weight': (None,), # 'balanced',),
-#     'clf__verbose':(False,),
-# }
-# print("\n--- SVC Support Vector Machine Classifier ---")
-# run_grid_search(pipeline, parameters)
-# print("\n")
 
