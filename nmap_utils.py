@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import lxml
 from html import unescape
 from lxml import objectify
-from parse_html import parse_html, html_unescape_backslash_hex
+from parse_html import parse_html, html_unescape_backslash_hex, nrepeat
 from bs4 import BeautifulSoup
 import traceback
 import pdb
@@ -62,7 +62,7 @@ def tokenize_plain_text(text)->str:
     for tok in re.split(r'\ |=|,|;', text):
         tok = tok.strip(' ;,.-"\t\n\'()/\\')
         if tok:
-            yield tok
+            yield tok.lower()
 
 def parse_response_header(header:lxml.etree.ElementTree)->str:
     for child in header.getchildren():
@@ -73,41 +73,64 @@ def parse_response_header(header:lxml.etree.ElementTree)->str:
             fieldname, fieldvalue = text.split(': ', maxsplit=1)
         except ValueError:
             continue
-        if fieldname.lower() in ['content-length', 'date', 'last-modified', 
+        fieldname = fieldname.lower()
+        if fieldname in ['content-length', 'date', 'last-modified', 
                 'connection', 'content-type', 'cache-control', 'pragma', 
                 'transfer-encoding','etag','accept-encoding','accept-ranges']:
+            continue
+        if fieldname=='www-authenticate':
+            try:
+                realm = re.search(r'realm="(.*)"', fieldvalue, re.I).group(1)
+                for _ in range(3):
+                    yield realm
+            except AttributeError:
+                pass
             continue
         yield fieldname
         yield from tokenize_plain_text(fieldvalue)
 
-def tokenize_upnp_info(host)->str:
+def tokenize_upnp_tree(upnp_tree:lxml.etree._Element)->str:
     try:
-        upnp_info = host.xpath(".//script[@id='upnp-info']")[0]
-    except IndexError:
-        raise StopIteration
-    try:
-        upnp_header = upnp_info.xpath(".//table[@key='response_header']")[0]
+        upnp_header = upnp_tree.xpath(".//table[@key='response_header']")[0]
     except IndexError:
         raise StopIteration
     yield from parse_response_header(upnp_header)
-    upnp_body = upnp_info.xpath(".//elem[@key='response_body']")[0].text
+    upnp_body = upnp_tree.xpath(".//elem[@key='response_body']")[0].text
     if upnp_body is not None:
-        parser = etree.XMLParser(encoding='utf8', recover=True)
+        parser = etree.XMLParser(encoding='utf8', recover=True, huge_tree=True, ns_clean=True)
         try:
             xml_tree = etree.fromstring(upnp_body.encode('utf8'), parser=parser)
         except Exception as ex:
             pdb.set_trace()
             traceback.print_exc()
-        root = lxml_remove_namespace(xml_tree.getroottree())
-        for elem in root.getiterator():
+        xml_tree = lxml_remove_namespace(xml_tree.getroottree())
+        for elem in xml_tree.getiterator():
             if not re.match(r'friendly|manufacturer|model', str(elem.tag), re.I):
                 continue
             yield from tokenize_plain_text(elem.text)
-    for elem in upnp_info.xpath(".//elem"):
+    for elem in upnp_tree.xpath(".//elem"):
         if not re.match(r'friendly|manufacturer|model|HostServer', 
                 elem.attrib.get('key',''), re.I):
             continue
         yield from tokenize_plain_text(elem.text)
+
+def tokenize_upnp_info(host)->str:
+    try:
+        upnp_tree = host.xpath(".//script[@id='upnp-info']")[0]
+    except IndexError:
+        raise StopIteration
+    yield from tokenize_upnp_tree(upnp_tree)
+
+
+def tokenize_broadcast_upnp_info(IDSession:int, ipaddr:str)->str:
+    parser = etree.XMLParser(ns_clean=True, encoding='utf-8', huge_tree=True, recover=True)
+    tree = etree.parse('nmaplog/%s.xml'%IDSession, parser=parser)
+    try:
+        upnp_tree  = tree.xpath(".//script[@id='broadcast-upnp-info']/table[@key='%s']"%ipaddr)[0]
+    except IndexError:
+        raise StopIteration
+    yield from tokenize_upnp_tree(upnp_tree)
+
 
 
 def get_host(IDSession:int, ip_addr:str)->ElementTree:
@@ -117,6 +140,8 @@ def get_host(IDSession:int, ip_addr:str)->ElementTree:
     if not xml_code:
         return None
     return etree.fromstring(xml_code, parser=parser)
+
+    
 
 def tokenize_http_homepage(host:lxml.etree.ElementTree)->str:
     try:
@@ -131,10 +156,9 @@ def tokenize_http_homepage(host:lxml.etree.ElementTree)->str:
         raise StopIteration
     if body is None:
         raise StopIteration
-    soup = BeautifulSoup(html_unescape_backslash_hex(body), 'lxml')
-    for _ in soup(["style","script"]):
-        _.extract()
-    yield from tokenize_plain_text(str(soup.get_text()))
+    htmlcode=html_unescape_backslash_hex(body)
+    from parse_html import parse_html
+    yield from parse_html(htmlcode)
 
 def get_host_open_ports(xmlfile:str, host_ip:str)->list:
     """
@@ -321,7 +345,9 @@ def tokenize_nmaplog_host(IDSession:int, ip_addr:str)->str:
     host = get_host(IDSession, ip_addr)
     if host is None:
         raise StopIteration
-    yield from tokenize_upnp_info(host)
+    # upweight upnp_info
+    yield from nrepeat(3, tokenize_upnp_info(host))
+    yield from nrepeat(3, tokenize_broadcast_upnp_info(IDSession, ip_addr))
     yield from tokenize_http_homepage(host)
     yield from tokenize_dns(host)
     yield from tokenize_hostname(host)
@@ -338,12 +364,15 @@ def main():
     # toks = [_ for _ in tokenize_nmaplog_host(133, '192.168.1.1')]
     # toks = [_ for _ in tokenize_nmaplog_host(853, '192.168.1.1')]
     if idsession is None:
-        idsession, ip_addr = 1069962, '192.168.1.1'
+        idsession, ip_addr = 25, '192.168.11.1'
     toks = [_ for _ in tokenize_nmaplog_host(idsession, ip_addr)]
-    from collections import Counter
-    counter = Counter(toks)
-    # assert "dsldevice.lan" in counter
-    print(counter)
+    import pprint
+    pp = pprint.PrettyPrinter()
+    pp.pprint(toks)
+    # from collections import Counter
+    # counter = Counter(toks)
+    # # assert "dsldevice.lan" in counter
+    # print(counter)
 
 if __name__=='__main__':
     main()
