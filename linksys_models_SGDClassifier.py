@@ -171,23 +171,25 @@ pipeline = Pipeline([
 parameters = [
     {
         **best_vect_params,
-        'clf__C': [2**x for x in range(2,10)],
+        'clf__C': (3,4,5,6,),
         'clf__loss':('squared_hinge',),
         'clf__penalty': ('l1',),
         'clf__dual': (False,),
     },
-    #{
-    #    'vect__token_pattern':(r"[^\ ]+",),
-    #    'clf__loss':('squared_hinge',),
-    #    'clf__penalty': ('l2',),
-    #    'clf__dual': (True,False,),
-    #},
-    #{
-    #    'vect__token_pattern':(r"[^\ ]+",),
-    #    'clf__loss':('hinge',),
-    #    'clf__penalty': ('l2',),
-    #    'clf__dual': (True,),
-    #},
+    {
+        **best_vect_params,
+        'clf__C': (3,4,5,6,),
+        'clf__loss':('squared_hinge',),
+        'clf__penalty': ('l2',),
+        'clf__dual': (True,False,),
+    },
+    {
+        **best_vect_params,
+        'clf__C': (3,4,5,6,),
+        'clf__loss':('hinge',),
+        'clf__penalty': ('l2',),
+        'clf__dual': (True,),
+    },
 ]
 print("\n--- LinearSVC Linear Support Vector Machine Classifier ---")
 run_grid_search(pipeline, parameters)
